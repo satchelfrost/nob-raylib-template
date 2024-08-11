@@ -3,9 +3,10 @@
 #include <assert.h>
 #include "ext/nob.h"
 
-#define WIDTH  1600
+#define WIDTH 1600
 #define HEIGHT 900
-#define POINT_RADIUS 10.0f
+#define WAYPOINT_RADIUS 10.0f
+#define WAYPOINT_COLL_RADIUS WAYPOINT_RADIUS / 100.0f
 #define DRONE_RADIUS 15.0f
 #define PLOT_POINT_RADIUS 5.0f
 #define SPEED 350
@@ -24,7 +25,7 @@ typedef struct {
     Color color;
 } Point;
 
-Point points[] = {
+Point waypoints[] = {
     {
         .pos = {
             .x = WIDTH / 4.0f,
@@ -34,8 +35,8 @@ Point points[] = {
     },
     {
         .pos = {
-            .x = (5.0 / 8.0) * WIDTH,
-            .y = (5.0 / 8.0) * HEIGHT,
+            .x = WIDTH / 2.0f,
+            .y = HEIGHT / 2.0f,
         },
         .color = {
             .g = 255,
@@ -51,23 +52,27 @@ Point points[] = {
     },
 };
 
-Point points2[3] = {0};
+#define NUM_WAYPOINTS NOB_ARRAY_LEN(waypoints)
 
-#define NUM_POINTS (int) (sizeof(points) / sizeof(points[0]))
+typedef struct {
+    Point *items;
+    size_t count;
+    size_t capacity;
+} PlotPoints;
 
 typedef enum {
-    GO_PURPLE = 0,
-    GO_GREEN,
-    GO_BLUE,
-} GoState;
+    GOTO_PURPLE = 0,
+    GOTO_GREEN,
+    GOTO_BLUE,
+} GotoState;
 
 typedef struct {
     Vector2 pos;
     Color color;
-    Vector2 velocity;
-    GoState goState;
-    int oldestIdx;
+    GotoState gotoState;
     bool oldestMode;
+    Point waypoints[3];
+    PlotPoints plotPoints;
 } Drone;
 
 Drone drones[] = {
@@ -77,8 +82,8 @@ Drone drones[] = {
             .y = (5.0 / 8.0) * HEIGHT,
         },
         .color = BLACK,
+        .gotoState = GOTO_BLUE,
         .oldestMode = true,
-        .oldestIdx = 2,
     },
     {
         .pos =  {
@@ -86,25 +91,20 @@ Drone drones[] = {
             .y = (5.0 / 8.0) * HEIGHT,
         },
         .color = RED,
-        .goState = GO_GREEN,
-        .oldestIdx = 1,
+        .gotoState = GOTO_GREEN,
         .oldestMode = false,
     },
 
 };
 
-typedef struct {
-    Point *items;
-    size_t count;
-    size_t capacity;
-} PlotPoints;
+#define NUM_DRONES NOB_ARRAY_LEN(drones)
 
-int GetOldestPointIdx()
+int GetOldestPointIdx(Point *points, size_t numPoints)
 {
     int idx = -1;
     float oldest = 0.0f;
 
-    for (int i = 0; i < NUM_POINTS; i++) {
+    for (size_t i = 0; i < numPoints; i++) {
         if (points[i].time >= oldest) {
             oldest = points[i].time;
             idx = i;
@@ -116,65 +116,57 @@ int GetOldestPointIdx()
     return idx;
 }
 
-float GetAveTime(bool firstSet)
+float GetAveTime(Point *points, size_t numPoints)
 {
     float sum = 0.0f;
-    for (int i = 0; i < NUM_POINTS; i++) {
-        if (firstSet)
-            sum += points[i].time;
-        else
-            sum += points2[i].time;
-    }
+    for (size_t i = 0; i < numPoints; i++)
+        sum += points[i].time;
 
-    return sum / (float)NUM_POINTS;
+    if (numPoints) {
+        float ave = sum / (float)numPoints;
+        return ave;
+    } else {
+        return 0.0f;
+    }
 }
 
-float GetGlblAve(PlotPoints points)
-{
-    float sum = 0.0f;
-    for (int i = 0; i < (int)points.count; i++) {
-        sum += points.items[i].time;
-    }
-
-    float ave = sum / (float)points.count;
-    return ave;
-}
 
 int main()
 {
-    InitWindow(WIDTH, HEIGHT, "hello from raylib");
-
+    /* Initialization */
+    InitWindow(WIDTH, HEIGHT, "Next Oldest Time Heuristic");
     bool moving = true;
     float deltaTime = 0.0f;
     float plotTimer = 0.0f;
-    PlotPoints plotPoints = {0};
-    PlotPoints plotPoints2 = {0};
-    bool flip = false;
+    bool flip = false; // used for next oldest time heuristic
 
-    points2[0] = points[0];
-    points2[1] = points[1];
-    points2[2] = points[2];
+    /* Initialize drone point state */
+    for (size_t i = 0; i < NUM_DRONES; i++) {
+        for (size_t j = 0; j < NUM_WAYPOINTS; j++) {
+            drones[i].waypoints[j] = waypoints[j];
+        }
+    }
 
+    /* Game loop */
     while(!WindowShouldClose()) {
         /* Input */
         if (IsKeyPressed(KEY_SPACE)) moving = !moving;
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-            points2[1].pos = points[1].pos = GetMousePosition();
+            Vector2 pos = GetMousePosition();
+            for (size_t i = 0; i < NUM_DRONES; i++)
+                drones[i].waypoints[GOTO_GREEN].pos = pos;
         }
 
         /* Update drone position */
         if (moving) {
-            for (int i = 0; i < (int)NOB_ARRAY_LEN(drones); i++) {
-                deltaTime = GetFrameTime();
-                Vector2 dir;
-                if (drones[i].oldestMode) {
-                    dir = Vector2Subtract(points[drones[i].oldestIdx].pos, drones[i].pos);
-                } else {
-                    dir = Vector2Subtract(points2[drones[i].oldestIdx].pos, drones[i].pos);
-                }
+            deltaTime = GetFrameTime();
+            for (size_t i = 0; i < NUM_DRONES; i++) {
+                Vector2 dst = drones[i].waypoints[drones[i].gotoState].pos;
+                Vector2 src = drones[i].pos;
+                Vector2 dir = Vector2Subtract(dst, src);
                 dir = Vector2Normalize(dir);
-                drones[i].velocity = Vector2Scale(dir, deltaTime * SPEED);
-                drones[i].pos = Vector2Add(drones[i].pos, drones[i].velocity);
+                Vector2 velocity = Vector2Scale(dir, deltaTime * SPEED);
+                drones[i].pos = Vector2Add(src, velocity);
             }
         } else {
             deltaTime = 0.0f;
@@ -184,109 +176,114 @@ int main()
         plotTimer += deltaTime;
         if (plotTimer >= PLOT_INTERVAL) {
             plotTimer = 0.0f;
-            if (plotPoints.count + 1 <= MAX_PLOT_POINTS) {
-                float av_time = GetAveTime(true);
-                Point p = {
-                    .pos = {
-                        .x = PLOT_PADDING + plotPoints.count * STEP,
-                        .y = HEIGHT - PLOT_PADDING - av_time * PLOT_HEIGHT * Y_SCALE_FACTOR,
-                    },
-                    .color = BLACK,
-                    .time = av_time,
-                };
+            for (size_t i = 0; i < NUM_DRONES; i++) {
+                PlotPoints *plotPoints = &drones[i].plotPoints;
+                if (plotPoints->count + 1 <= MAX_PLOT_POINTS) {
+                    float av_time = GetAveTime(drones[i].waypoints, NUM_WAYPOINTS);
+                    Point p = {
+                        .pos = {
+                            .x = PLOT_PADDING + plotPoints->count * STEP,
+                            .y = HEIGHT - PLOT_PADDING - av_time * PLOT_HEIGHT * Y_SCALE_FACTOR,
+                        },
+                        .color = drones[i].color,
+                        .time = av_time,
+                    };
 
-                /* reset plot or update plot points */
-                if (p.pos.x >= WIDTH - PADDING) plotPoints.count = 0;
-                else nob_da_append(&plotPoints, p);
-
-                av_time = GetAveTime(false);
-                Point p2 = {
-                    .pos = {
-                        .x = PLOT_PADDING + plotPoints2.count * STEP,
-                        .y = HEIGHT - PLOT_PADDING - av_time * PLOT_HEIGHT * Y_SCALE_FACTOR,
-                    },
-                    .color = BLACK,
-                    .time = av_time,
-                };
-                if (p2.pos.x >= WIDTH - PADDING) plotPoints2.count = 0;
-                else nob_da_append(&plotPoints2, p2);
+                    /* reset plot or update plot points */
+                    if (p.pos.x >= WIDTH - PADDING) plotPoints->count = 0;
+                    else nob_da_append(plotPoints, p);
+                }
             }
         }
 
         /* Collision check */
-        for (int i = 0; i < NUM_POINTS; i++) {
-            for (int j = 0; j < (int)NOB_ARRAY_LEN(drones); j++) {
-                if (drones[j].oldestMode) {
-                    if (CheckCollisionCircles(drones[j].pos, DRONE_RADIUS, points[i].pos, POINT_RADIUS / 100.0f)) {
-                        points[i].time = 0.0f;
-                        drones[j].oldestIdx = GetOldestPointIdx();
-                    } else {
-                        points[i].time += deltaTime;
-                    }
-                } else {
-                    if (CheckCollisionCircles(drones[j].pos, DRONE_RADIUS, points2[drones[j].goState].pos, POINT_RADIUS / 100.0f)) {
-                        points2[drones[j].goState].time = 0.0f;
-                        if (drones[j].goState == GO_PURPLE || drones[j].goState == GO_BLUE) {
-                            drones[j].goState = GO_GREEN;
-                            drones[j].oldestIdx= GO_GREEN;
+        for (size_t i = 0; i < NUM_DRONES; i++) {
+            for (size_t j = 0; j < NUM_WAYPOINTS; j++) {
+                Drone *drone = &drones[i];
+                Vector2 dst = drone->waypoints[j].pos;
+                if (CheckCollisionCircles(drone->pos, DRONE_RADIUS, dst, WAYPOINT_COLL_RADIUS)) {
+                    if (j == drone->gotoState) {
+                        /* reset time */
+                        drone->waypoints[j].time = 0.0f;
+                        if (drone->oldestMode) {
+                            /* oldest point mode */
+                            drone->gotoState = GetOldestPointIdx(drone->waypoints, NUM_WAYPOINTS);
                         } else {
-                            drones[j].goState = (flip) ? GO_PURPLE : GO_BLUE;
-                            drones[j].oldestIdx = drones[j].goState;
-                            flip = !flip;
+                            /* next oldest point (aka flip-flop) */
+                            if (drone->gotoState == GOTO_PURPLE || drone->gotoState == GOTO_BLUE) {
+                                drone->gotoState = GOTO_GREEN;
+                            } else {
+                                drone->gotoState = (flip) ? GOTO_PURPLE : GOTO_BLUE;
+                                flip = !flip;
+                            }
                         }
                     } else {
-                        points2[i].time += deltaTime;
+                        drone->waypoints[j].time += deltaTime;
                     }
+                } else {
+                    drone->waypoints[j].time += deltaTime;
                 }
             }
         }
 
         /* Drawing */
         BeginDrawing();
-            ClearBackground(BLUE);
-            for (int i = 0; i < NUM_POINTS; i++) {
-                DrawCircleV(points[i].pos, POINT_RADIUS, points[i].color);
+            ClearBackground(RAYWHITE);
+            /* Draw waypoints */
+            for (size_t j = 0; j < NUM_WAYPOINTS; j++) {
+                Point p1 = drones[0].waypoints[j];
+                Point p2 = drones[1].waypoints[j];
+                /* Only draw one set of waypoints */
+                DrawCircleV(p1.pos, WAYPOINT_RADIUS, p1.color);
 
-                const char *txt = TextFormat("%.1fs", points[i].time); 
-                Vector2 pos = points[i].pos;
-                DrawText(txt, pos.x + 20, pos.y, FONT_SZ, BLACK);
+                const char *txt = TextFormat("%.1fs", p1.time); 
+                DrawText(txt, p1.pos.x + 20.0f, p1.pos.y, FONT_SZ, drones[0].color);
 
-                const char *txt2 = TextFormat("%.1fs", points2[i].time); 
+                const char *txt2 = TextFormat("%.1fs", p2.time); 
                 int width = MeasureText(txt2, FONT_SZ);
-                pos = points2[i].pos;
-                DrawText(txt2, pos.x - 20 - width, pos.y, FONT_SZ, RED);
+                DrawText(txt2, p2.pos.x - 20.0f - (float)width, p2.pos.y, FONT_SZ, drones[1].color);
             }
 
-            for (int i = 0; i < (int)NOB_ARRAY_LEN(drones); i++) 
+            /* Draw drones */
+            for (size_t i = 0; i < NUM_DRONES; i++)
                 DrawCircleV(drones[i].pos, DRONE_RADIUS, drones[i].color);
 
             /* Draw plot boundaries and text */
-            DrawRectangleLines(PLOT_PADDING, HEIGHT - PLOT_PADDING - PLOT_HEIGHT, WIDTH - 2.0f * PLOT_PADDING, PLOT_HEIGHT, BLACK);
-            const char *title = TextFormat("Average time (plot interval=%.2fs)", PLOT_INTERVAL);
+            DrawRectangleLines(PLOT_PADDING, HEIGHT - PLOT_PADDING - PLOT_HEIGHT + 1.0, WIDTH - 2.0f * PLOT_PADDING, PLOT_HEIGHT, BLACK);
+            const char *title = TextFormat("Current Average Time");
             int txtWidth = MeasureText(title, 20);
             DrawText(title, WIDTH / 2.0f - txtWidth / 2.0f, HEIGHT - PLOT_PADDING - PLOT_HEIGHT - 20, 20.0f, BLACK);
             DrawText("0.0", PLOT_PADDING, HEIGHT - PLOT_PADDING, 20.0f, BLACK);
             DrawText("4.0", PLOT_PADDING, HEIGHT - PLOT_PADDING - PLOT_HEIGHT - 20, 20.0f, BLACK);
 
-            /* Draw line plot */
-            for (size_t i = 0; i < plotPoints.count; i++) {
-                if (i > 0) {
-                    Vector2 p1 = plotPoints.items[i-1].pos;
-                    Vector2 p2 = plotPoints.items[i].pos;
-                    DrawLine(p1.x, p1.y, p2.x, p2.y, BLACK);
-                }
-            }
-            for (size_t i = 0; i < plotPoints2.count; i++) {
-                if (i > 0) {
-                    Vector2 p1 = plotPoints2.items[i-1].pos;
-                    Vector2 p2 = plotPoints2.items[i].pos;
-                    DrawLine(p1.x, p1.y, p2.x, p2.y, RED);
+            /* Draw line plots */
+            for (size_t i = 0; i < NUM_DRONES; i++) {
+                PlotPoints pltPoints = drones[i].plotPoints;
+                for (size_t j = 0; j < pltPoints.count; j++) {
+                    if (j > 0) {
+                        Vector2 p1 = pltPoints.items[j-1].pos;
+                        Vector2 p2 = pltPoints.items[j].pos;
+                        DrawLine(p1.x, p1.y, p2.x, p2.y, drones[i].color);
+                        if (j == pltPoints.count - 1) {
+                            float currAve = GetAveTime(drones[i].waypoints, NUM_WAYPOINTS);
+                            if (i == 0) {
+                                DrawText(TextFormat("%.1f", currAve), p2.x + 30.0f, p2.y, 20.0f, drones[i].color);
+                            } else {
+                                DrawText(TextFormat("%.1f", currAve), p2.x, p2.y, 20.0f, drones[i].color);
+                            }
+                        }
+                    }
                 }
             }
 
-            const char *txt = TextFormat("curr ave. %.1fs, glbl av. %.1fs (Oldest time mode)", GetAveTime(true), GetGlblAve(plotPoints)); 
+            /* Global average time */
+            PlotPoints pltPoints = drones[0].plotPoints;
+            float glblAve = GetAveTime(pltPoints.items, pltPoints.count);
+            const char *txt = TextFormat("Global Average %.1fs (Oldest time mode)", glblAve); 
             DrawText(txt, 20, 20, FONT_SZ, BLACK);
-            const char *txt2 = TextFormat("curr av. %.1fs, glbl av. %.1fs (flip flop mode)", GetAveTime(false), GetGlblAve(plotPoints2)); 
+            pltPoints = drones[1].plotPoints;
+            glblAve = GetAveTime(pltPoints.items, pltPoints.count);
+            const char *txt2 = TextFormat("Global Average %.1fs (Next oldest time heuristic)", glblAve); 
             DrawText(txt2, 20, 80, FONT_SZ, RED);
         EndDrawing();
     }
