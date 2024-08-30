@@ -31,6 +31,7 @@ int main()
     const int width  = 1600;
     const int height = 900;
     InitWindow(width, height, "Normalized coordinate system");
+    SetTargetFPS(60);
 
     /* calculate initial positions based on vectors */
     calc_positions();
@@ -43,19 +44,25 @@ int main()
         Vector2 mouse_pos = GetMousePosition();
         Vector2 p = Vector2Subtract(mouse_pos, local_origin);
 
-        // noralized x
-        Vector2 d1_norm = Vector2Normalize(local_right);
-        float d1_mag  = Vector2Length(local_right);
-        float d1_scale = Vector2DotProduct(p, local_right) / d1_mag;
-        float numerator_1 = Vector2Length(Vector2Scale(d1_norm, d1_scale));
-        float x = numerator_1 / d1_mag; 
+        /* More complicated way */
+        // // noralized x
+        // Vector2 d1_norm = Vector2Normalize(local_right);
+        // float d1_mag  = Vector2Length(local_right);
+        // float d1_scale = Vector2DotProduct(p, local_right) / d1_mag;
+        // float numerator_1 = Vector2Length(Vector2Scale(d1_norm, d1_scale));
+        // float x = numerator_1 / d1_mag;
+        // // noralized y
+        // Vector2 d2_norm = Vector2Normalize(local_down);
+        // float d2_mag  = Vector2Length(local_down);
+        // float d2_scale = Vector2DotProduct(p, local_down) / d2_mag;
+        // float numerator_2 = Vector2Length(Vector2Scale(d2_norm, d2_scale));
+        // float y = numerator_2 / d2_mag;
 
-        // noralized y
-        Vector2 d2_norm = Vector2Normalize(local_down);
-        float d2_mag  = Vector2Length(local_down);
-        float d2_scale = Vector2DotProduct(p, local_down) / d2_mag;
-        float numerator_2 = Vector2Length(Vector2Scale(d2_norm, d2_scale));
-        float y = numerator_2 / d2_mag; 
+        /* Simpler way*/
+        float d1_scale = Vector2DotProduct(p, local_right);
+        float d2_scale = Vector2DotProduct(p, local_down);
+        float x = d1_scale / Vector2LengthSqr(local_right);
+        float y = d2_scale / Vector2LengthSqr(local_down);
 
         /* drawing section */
         BeginDrawing();
