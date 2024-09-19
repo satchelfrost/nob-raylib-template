@@ -7,6 +7,10 @@
 #define SCREEN_FACTOR 80
 #define SCREEN_WIDTH  (16 * SCREEN_FACTOR)
 #define SCREEN_HEIGHT ( 9 * SCREEN_FACTOR)
+#define FONT_SIZE 22
+
+#define KEY_SPACING 10 
+#define KEY_WIDTH 100
 
 #define MOUSE_MOVE_SENSITIVITY 0.005f
 
@@ -22,6 +26,8 @@
 #define MAX_CUBE_SCALE 2.0f
 #define BOUNDS 10
 
+#define ARRAY_LEN(arr) (sizeof(arr) / sizeof(*arr))
+
 typedef struct {
     Vector3 pos;
     Vector3 forward;
@@ -32,21 +38,193 @@ typedef struct {
 } Cube;
 
 typedef enum {
-    STATE_INTRO,    
-    STATE_CALIBRATE_KEY_MOUSE,    
-    STATE_CALIBRATE_GAMEPAD,    
-    STATE_MOVEMENT_KEY_MOUSE,    
-    STATE_MOVEMENT_GAMEPAD,    
+    STATE_INTRO,
+    STATE_CALIBRATE_KEY_MOUSE,
+    STATE_CALIBRATE_GAMEPAD,
+    STATE_MOVEMENT_KEY_MOUSE,
+    STATE_MOVEMENT_GAMEPAD,
     STATE_END,
+    STATE_COUNT,
 } State;
 
 void update_cube_gamepad(Cube *cube);
 void update_cube_key_mouse(Cube *cube);
+float render_text_centered(const char *msg, int y, Color color);
+
+State handle_state_change(State state)
+{
+    bool key_mouse_calibrated = false;
+    bool gamepad_calibrated = true;
+    bool key_mouse_state_done = false;
+    bool gamepad_state_done = false;
+
+    switch (state) {
+    case STATE_INTRO:
+        if (IsKeyPressed(KEY_SPACE))
+            return (state + 1) % STATE_COUNT;
+        break;
+    case STATE_CALIBRATE_KEY_MOUSE:
+        if (key_mouse_calibrated)
+            return (state + 1) % STATE_COUNT;
+        break;
+    case STATE_CALIBRATE_GAMEPAD:
+        if (gamepad_calibrated)
+            return (state + 1) % STATE_COUNT;
+        break;
+    case STATE_MOVEMENT_GAMEPAD:
+        if (gamepad_state_done)
+            return (state + 1) % STATE_COUNT;
+        break;
+    case STATE_MOVEMENT_KEY_MOUSE:
+        if (key_mouse_state_done)
+            return (state + 1) % STATE_COUNT;
+        break;
+    case STATE_END:
+    default: return state;
+    }
+
+    return state;
+}
+
+void render_key_mouse_calibrate()
+{
+    static bool w = false;
+    static bool a = false;
+    static bool s = false;
+    static bool d = false;
+    static bool up = false;
+    static bool down = false;
+    static bool mouse_right = false;
+
+    if (!w) w = IsKeyPressed(KEY_W);
+    if (!a) a = IsKeyPressed(KEY_A);
+    if (!s) s = IsKeyPressed(KEY_S);
+    if (!d) d = IsKeyPressed(KEY_D);
+    if (!up) up = IsKeyPressed(KEY_UP);
+    if (!down) down = IsKeyPressed(KEY_DOWN);
+    if (!mouse_right) mouse_right = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+
+
+    int x_offset = SCREEN_WIDTH / 4;
+    const char *wasd = "W, A, S, D, for translation";
+    int txt_width = MeasureText(wasd, FONT_SIZE);
+    DrawText(wasd,
+             x_offset - txt_width / 2,
+             SCREEN_HEIGHT / 2 - FONT_SIZE - KEY_WIDTH / 2 - KEY_SPACING,
+             FONT_SIZE, BLACK);
+
+    /* W */
+    DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2,
+                  SCREEN_HEIGHT / 2 - KEY_WIDTH / 2,
+                  KEY_WIDTH, KEY_WIDTH, w ? GREEN: RED);
+    /* A */
+    DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2 - KEY_WIDTH - KEY_SPACING,
+                  SCREEN_HEIGHT / 2 - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
+                  KEY_WIDTH, KEY_WIDTH, a ? GREEN : RED);
+    /* S */
+    DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2,
+                  SCREEN_HEIGHT / 2 - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
+                  KEY_WIDTH, KEY_WIDTH, s ? GREEN : RED);
+    /* D */
+    DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
+                  SCREEN_HEIGHT / 2 - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
+                  KEY_WIDTH, KEY_WIDTH, d ? GREEN : RED);
+
+    /* up/down arrow gui*/
+    // const char *up_down_txt = "up/down arrows scales cube";
+    // txt_width = MeasureText(up_down_txt, FONT_SIZE);
+    // DrawText(up_down_txt,
+    //          txt_width / 2,
+    //          SCREEN_HEIGHT / 2 - FONT_SIZE - KEY_WIDTH / 2 - KEY_SPACING,
+    //          FONT_SIZE, BLACK);
+    // DrawRectangle(KEY_WIDTH / 2,
+    //               SCREEN_HEIGHT / 2 - KEY_WIDTH / 2,
+    //               KEY_WIDTH, KEY_WIDTH, up ? GREEN : RED);
+
+
+    /* mouse right click gui */
+    x_offset += SCREEN_WIDTH / 2;
+    const char *mouse_txt = "Right click does rotation";
+    txt_width = MeasureText(mouse_txt, FONT_SIZE);
+    DrawText(mouse_txt,
+             x_offset - txt_width / 2,
+             SCREEN_HEIGHT / 2 - FONT_SIZE - KEY_WIDTH / 2 - KEY_SPACING,
+             FONT_SIZE, BLACK);
+    DrawRectangle(x_offset - KEY_WIDTH / 2,
+                  SCREEN_HEIGHT / 2 - KEY_WIDTH / 2,
+                  KEY_WIDTH, KEY_WIDTH, mouse_right ? GREEN : RED);
+}
+
+float render_text_centered(const char *msg, int y, Color color)
+{
+    int txt_width = MeasureText(msg, FONT_SIZE);
+    float x = SCREEN_WIDTH / 2.0f - txt_width / 2.0f;
+    DrawText(msg, x, y, FONT_SIZE, color);
+    return x;
+}
+
+typedef struct {
+    const char *txt;
+    Color color;
+    bool center;
+} Text;
+
+void render_intro()
+{
+    const char *intro = "Please do not press any keys until reading all instructions.";
+    const char *warning_label =  "*WARNING*";
+    const char *warning_1_1 = "you must have a gamepad controller that can conntect to your computer via bluetooth.";
+    const char *warning_1_2 = "XBox, and Wii Pro controllers have been tested, but others may work as well. You will know if";
+    const char *warning_1_3 = "it doesn't work if you are unable to make it past the gamepad calibration screen";
+    const char *section_1 = "This test consists of Five parts in the following order:";
+    const char *bullet_1  = "1) Keyboard + Mouse calibration / controls explanation";
+    const char *bullet_2  = "2) Gamepad calibration / controls explanation";
+    const char *bullet_3  = "3) Keyboard + Mouse movement of cube (x5 for each cube)";
+    const char *bullet_4  = "4) Gamepad movement of cube (x5 for each cube)";
+    const char *bullet_5  = "5) Results screen";
+    const char *section_2_1 = "the results are not stored on this website, therefore you must screenshot";
+    const char *section_2_2 = "your results, and send it to reese.gallagher@ucf.edu or post them to the discussion board";
+    const char *section_2_3 = "where this link was posted";
+    const char *end_msg = "When you are ready to begin press the spacebar";
+
+    const Text msgs[] = {
+        {.txt = intro, .color = BLACK, .center = true},
+        {.txt = ""},
+        {.txt = warning_label, .color = RED, .center = true},
+        {.txt = warning_1_1, .color = BLACK, .center = true},
+        {.txt = warning_1_2, .color = BLACK, .center = true},
+        {.txt = warning_1_3, .color = BLACK, .center = true},
+        {.txt = ""},
+        {.txt = section_1, .color = BLACK, .center = true},
+        {.txt = bullet_1, .color = BLACK},
+        {.txt = bullet_2, .color = BLACK},
+        {.txt = bullet_3, .color = BLACK},
+        {.txt = bullet_4, .color = BLACK},
+        {.txt = bullet_5, .color = BLACK},
+        {.txt = ""},
+        {.txt = warning_label, .color = RED, .center = true},
+        {.txt = section_2_1, .color = BLACK, .center = true},
+        {.txt = section_2_2, .color = BLACK, .center = true},
+        {.txt = section_2_3, .color = BLACK, .center = true},
+        {.txt = ""},
+        {.txt = end_msg, .color = BLACK, .center = true},
+    };
+
+    int y = 50;
+    float x = 0;
+    for (int i = 0; i < (int)ARRAY_LEN(msgs); i++) {
+        if (msgs[i].center)
+            x = render_text_centered(msgs[i].txt, y, msgs[i].color);
+        else
+            DrawText(msgs[i].txt, x, y, FONT_SIZE, msgs[i].color);
+        y += FONT_SIZE * 1.2f;
+    }
+}
 
 void movement_state_update(State state, Cube *cube)
 {
-    if (state == STATE_MOVEMENT_KEY_MOUSE)      update_cube_key_mouse(cube);
-    else if (state == STATE_MOVEMENT_KEY_MOUSE) update_cube_gamepad(cube);
+    if (state == STATE_MOVEMENT_KEY_MOUSE)    update_cube_key_mouse(cube);
+    else if (state == STATE_MOVEMENT_GAMEPAD) update_cube_gamepad(cube);
     else return;
 
     /* bounds check */
@@ -62,10 +240,8 @@ void movement_state_update(State state, Cube *cube)
     cube->m = MatrixMultiply(s, MatrixMultiply(r, t));
 }
 
-void movement_state_render(State state, Cube cube, Matrix *target_cubes)
+void movement_state_render(Cube cube, Matrix *target_cubes)
 {
-    if (state != STATE_MOVEMENT_KEY_MOUSE || state != STATE_MOVEMENT_KEY_MOUSE) return;
-
     DrawGrid(20, 1);
 
     /* target cubes */
@@ -243,22 +419,58 @@ int main()
         .color   = RED,
     };
 
+    State state = STATE_INTRO;
+    // State state = STATE_CALIBRATE_KEY_MOUSE;
+
     Matrix target_cubes[NUM_TARGET_CUBES] = {0};
     for (int i = 0; i < NUM_TARGET_CUBES; i++)
         target_cubes[i] = default_cubes[i];
 
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "HCI User Study - Keyboard + Mouse vs. Gamepad Controller");
+    SetTargetFPS(60);
 
     while(!WindowShouldClose()) {
-        /* input */
-        movement_state_update(STATE_MOVEMENT_KEY_MOUSE, &cube);
+        state = handle_state_change(state);
+
+        /* update */
+        switch(state) {
+        case STATE_INTRO:
+            break;
+        case STATE_CALIBRATE_KEY_MOUSE:
+            break;
+        case STATE_CALIBRATE_GAMEPAD:
+            break;
+        case STATE_MOVEMENT_KEY_MOUSE:
+        case STATE_MOVEMENT_GAMEPAD:
+            movement_state_update(state, &cube);
+            break;
+        case STATE_END:
+        default:
+            break;
+        }
 
         /* drawing */
         BeginDrawing();
             ClearBackground(RAYWHITE);
-            BeginMode3D(camera);
-                movement_state_render(STATE_MOVEMENT_KEY_MOUSE, cube, target_cubes);
-            EndMode3D();
+            switch(state) {
+            case STATE_INTRO:
+                render_intro();
+                break;
+            case STATE_CALIBRATE_KEY_MOUSE:
+                render_key_mouse_calibrate();
+                break;
+            case STATE_CALIBRATE_GAMEPAD:
+                break;
+            case STATE_MOVEMENT_KEY_MOUSE:
+            case STATE_MOVEMENT_GAMEPAD:
+                BeginMode3D(camera);
+                    movement_state_render(cube, target_cubes);
+                EndMode3D();
+                break;
+            case STATE_END:
+            default:
+                break;
+            }
         EndDrawing();
     }
     CloseWindow();
