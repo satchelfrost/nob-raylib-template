@@ -31,62 +31,86 @@ typedef struct {
     Matrix m;
 } Cube;
 
-typedef struct {
-    Vector3 pos;
-    Color color;
-    float radius;
-} Sphere;
-
 typedef enum {
     STATE_INTRO,    
     STATE_CALIBRATE_KEY_MOUSE,    
     STATE_CALIBRATE_GAMEPAD,    
-    STATE_TEST_KEY_MOUSE,    
-    STATE_TEST_GAMEPAD,    
+    STATE_MOVEMENT_KEY_MOUSE,    
+    STATE_MOVEMENT_GAMEPAD,    
     STATE_END,
 } State;
 
-void test_update(State state)
-{
-    if (state == STATE_TEST_KEY_MOUSE)       update_cube_key_mouse(&cube);
-    else if (state == STATE_TEST_KEY_MOUSE)  update_cube_gamepad(&cube);
-    else return;
+void update_cube_gamepad(Cube *cube);
+void update_cube_key_mouse(Cube *cube);
 
-    if (IsKeyPressed(KEY_SPACE)) {
-        if (target_cube_count + 1 <= NUM_TARGET_CUBES) target_cubes[target_cube_count++] = cube.m;
-        else TraceLog(LOG_INFO, "max cubes reached");
-    }
-    if (IsKeyPressed(KEY_P)) {
-        for (int i = 0; i < target_cube_count; i++) {
-            Matrix m = target_cubes[i];
-            TraceLog(LOG_INFO, "{");
-            TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,",  m.m0, m.m4, m.m8,  m.m12);
-            TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,",  m.m1, m.m5, m.m9,  m.m13);
-            TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,",  m.m2, m.m6, m.m10, m.m14);
-            TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,",  m.m3, m.m7, m.m11, m.m15);
-            TraceLog(LOG_INFO, "},");
-        }
-    }
+void movement_state_update(State state, Cube *cube)
+{
+    if (state == STATE_MOVEMENT_KEY_MOUSE)      update_cube_key_mouse(cube);
+    else if (state == STATE_MOVEMENT_KEY_MOUSE) update_cube_gamepad(cube);
+    else return;
 
     /* bounds check */
-    if (cube.pos.x < -BOUNDS || cube.pos.x > BOUNDS ||
-        cube.pos.y < -BOUNDS || cube.pos.y > BOUNDS ||
-        cube.pos.z < -BOUNDS || cube.pos.z > BOUNDS)
-        cube.pos = Vector3Zero();
+    if (cube->pos.x < -BOUNDS || cube->pos.x > BOUNDS ||
+        cube->pos.y < -BOUNDS || cube->pos.y > BOUNDS ||
+        cube->pos.z < -BOUNDS || cube->pos.z > BOUNDS)
+        cube->pos = Vector3Zero();
 
     /* update  cube matrix */
-    Matrix r = MatrixInvert(MatrixLookAt((Vector3){0.0f, 0.0f, 0.0f}, cube.forward, cube.up));
-    Matrix t = MatrixTranslate(cube.pos.x, cube.pos.y, cube.pos.z);
-    Matrix s = MatrixScale(cube.size.x, cube.size.y, cube.size.z);
-    cube.m = MatrixMultiply(s, MatrixMultiply(r, t));
+    Matrix r = MatrixInvert(MatrixLookAt((Vector3){0.0f, 0.0f, 0.0f}, cube->forward, cube->up));
+    Matrix t = MatrixTranslate(cube->pos.x, cube->pos.y, cube->pos.z);
+    Matrix s = MatrixScale(cube->size.x, cube->size.y, cube->size.z);
+    cube->m = MatrixMultiply(s, MatrixMultiply(r, t));
 }
 
-void test_render(State state)
+void movement_state_render(State state, Cube cube, Matrix *target_cubes)
 {
-    if (state == STATE_TEST_KEY_MOUSE)       update_cube_key_mouse(&cube);
-    else if (state == STATE_TEST_KEY_MOUSE)  update_cube_gamepad(&cube);
-    else return;
+    if (state != STATE_MOVEMENT_KEY_MOUSE || state != STATE_MOVEMENT_KEY_MOUSE) return;
 
+    DrawGrid(20, 1);
+
+    /* target cubes */
+    for (int i = 0; i < NUM_TARGET_CUBES; i++) {
+        rlPushMatrix();
+            rlMultMatrixf(MatrixToFloatV(target_cubes[i]).v);
+            DrawCubeWiresV((Vector3){0.0f, 0.0f, 0.0f}, (Vector3){1.0f, 1.0f, 1.0f}, BLACK);
+            rlPushMatrix();
+                DrawLine3D((Vector3){0.0f, 0.0f, -0.5f}, (Vector3){0.0f, 0.0f, -2.0f}, BLACK);
+                rlTranslatef(0.0f, 0.0f, -2.0f);
+                DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, BLUE);
+            rlPopMatrix();
+            rlPushMatrix();
+                DrawLine3D((Vector3){0.0f, 0.5f, 0.0f}, (Vector3){0.0f, 2.0f, 0.0f}, BLACK);
+                rlTranslatef(0.0f, 2.0f, 0.0f);
+                DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, GREEN);
+            rlPopMatrix();
+            rlPushMatrix();
+                DrawLine3D((Vector3){0.5f, 0.0f, 0.0f}, (Vector3){2.0f, 0.0f, 0.0f}, BLACK);
+                rlTranslatef(2.0f, 0.0f, 0.0f);
+                DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, MAGENTA);
+            rlPopMatrix();
+        rlPopMatrix();
+    }
+
+    /* user controlled cube */
+    rlPushMatrix();
+        rlMultMatrixf(MatrixToFloatV(cube.m).v);
+        DrawCubeV((Vector3){0.0f, 0.0f, 0.0f}, (Vector3){1.0f, 1.0f, 1.0f}, cube.color);
+        rlPushMatrix();
+            DrawLine3D((Vector3){0.0f, 0.0f, -0.5f}, (Vector3){0.0f, 0.0f, -2.0f}, BLACK);
+            rlTranslatef(0.0f, 0.0f, -2.0f);
+            DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, BLUE);
+        rlPopMatrix();
+        rlPushMatrix();
+            DrawLine3D((Vector3){0.0f, 0.5f, 0.0f}, (Vector3){0.0f, 2.0f, 0.0f}, BLACK);
+            rlTranslatef(0.0f, 2.0f, 0.0f);
+            DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, GREEN);
+        rlPopMatrix();
+        rlPushMatrix();
+            DrawLine3D((Vector3){0.5f, 0.0f, 0.0f}, (Vector3){2.0f, 0.0f, 0.0f}, BLACK);
+            rlTranslatef(2.0f, 0.0f, 0.0f);
+            DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, MAGENTA);
+        rlPopMatrix();
+    rlPopMatrix();
 }
 
 void update_cube_gamepad(Cube *cube)
@@ -219,47 +243,21 @@ int main()
         .color   = RED,
     };
 
-    int target_cube_count = 0;
     Matrix target_cubes[NUM_TARGET_CUBES] = {0};
     for (int i = 0; i < NUM_TARGET_CUBES; i++)
-        target_cubes[target_cube_count++] = default_cubes[i];
-    target_cube_count = NUM_TARGET_CUBES;
-
-    Sphere sphere = {
-        .pos = {0.0f, 0.0f, 0.0f},
-        .color = MAGENTA,
-        .radius = 0.1f,
-    };
+        target_cubes[i] = default_cubes[i];
 
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "HCI User Study - Keyboard + Mouse vs. Gamepad Controller");
 
     while(!WindowShouldClose()) {
         /* input */
+        movement_state_update(STATE_MOVEMENT_KEY_MOUSE, &cube);
 
         /* drawing */
         BeginDrawing();
             ClearBackground(RAYWHITE);
             BeginMode3D(camera);
-                DrawGrid(20, 1);
-                /* target cubes */
-                for (int i = 0; i < target_cube_count; i++) {
-                    rlPushMatrix();
-                        rlMultMatrixf(MatrixToFloatV(target_cubes[i]).v);
-                        DrawCubeWiresV((Vector3){0.0f, 0.0f, 0.0f}, (Vector3){1.0f, 1.0f, 1.0f}, BLACK);
-                        DrawLine3D((Vector3){0.0f, 0.0f, -0.5f}, (Vector3){0.0f, 0.0f, -2.0f}, BLACK);
-                        rlTranslatef(0.0f, 0.0f, -2.0f);
-                        DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, sphere.radius, sphere.color);
-                    rlPopMatrix();
-                }
-
-                /* user controlled cube */
-                rlPushMatrix();
-                    rlMultMatrixf(MatrixToFloatV(cube.m).v);
-                    DrawCubeV((Vector3){0.0f, 0.0f, 0.0f}, (Vector3){1.0f, 1.0f, 1.0f}, cube.color);
-                    DrawLine3D((Vector3){0.0f, 0.0f, -0.5f}, (Vector3){0.0f, 0.0f, -2.0f}, BLACK);
-                    rlTranslatef(0.0f, 0.0f, -2.0f);
-                    DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, sphere.radius, sphere.color);
-                rlPopMatrix();
+                movement_state_render(STATE_MOVEMENT_KEY_MOUSE, cube, target_cubes);
             EndMode3D();
         EndDrawing();
     }
