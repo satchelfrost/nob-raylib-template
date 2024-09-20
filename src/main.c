@@ -137,19 +137,51 @@ void render_gamepad_calibrate(int progress)
 
     /* analog left */
     DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_BOUND, BLACK);
-    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, WHITE);
-    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
-    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2 - ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
-    DrawCircle(SCREEN_WIDTH / 4 + ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
-    DrawCircle(SCREEN_WIDTH / 4 - ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, gp.l_joy_left  ? GREEN : RED);
+    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2 - ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, gp.l_joy_up    ? GREEN : RED);
+    DrawCircle(SCREEN_WIDTH / 4 + ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, gp.l_joy_right ? GREEN : RED);
+    DrawCircle(SCREEN_WIDTH / 4 - ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, gp.l_joy_down  ? GREEN : RED);
+    float x_offset = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X) * ANALOG_CIRCLE_BOUND;
+    float y_offset = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y)* ANALOG_CIRCLE_BOUND;
+    DrawCircle(SCREEN_WIDTH / 4 + x_offset, SCREEN_HEIGHT / 2 + y_offset, ANALOG_CIRCLE_TINY, PURPLE);
+    const char *l_analog_txt = "left analog for translation";
+    txt_width = MeasureText(l_analog_txt, FONT_SIZE);
+    DrawText(l_analog_txt,
+             SCREEN_WIDTH / 4 - txt_width / 2,
+             SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND + ANALOG_CIRCLE_BOUND / 2, FONT_SIZE, BLACK);
 
     /* analog right */
     DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_BOUND, BLACK);
-    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, WHITE);
-    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
-    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
-    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 + ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
-    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 - ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, gp.r_joy_left  ? GREEN : RED);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, gp.r_joy_up    ? GREEN : RED);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 + ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, gp.r_joy_right ? GREEN : RED);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 - ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, gp.r_joy_down  ? GREEN : RED);
+    x_offset = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X) * ANALOG_CIRCLE_BOUND;
+    y_offset = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y) * ANALOG_CIRCLE_BOUND;
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 + x_offset, SCREEN_HEIGHT / 2 + y_offset, ANALOG_CIRCLE_TINY, PURPLE);
+    const char *r_analog_txt = "right analog for rotation";
+    txt_width = MeasureText(r_analog_txt, FONT_SIZE);
+    DrawText(r_analog_txt,
+             SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2- txt_width / 2,
+             SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND + ANALOG_CIRCLE_BOUND / 2, FONT_SIZE, BLACK);
+
+    /* shoulder buttons */
+    const char *l_shoulder_txt = "left trigger scale down";
+    txt_width = MeasureText(l_shoulder_txt, FONT_SIZE);
+    DrawText(l_shoulder_txt,
+             SCREEN_WIDTH / 4 - txt_width / 2,
+             SCREEN_HEIGHT / 5 - KEY_WIDTH / 3, FONT_SIZE, BLACK);
+    DrawRectangle(SCREEN_WIDTH / 2  - KEY_WIDTH / 2 - SCREEN_WIDTH / 4,
+                  SCREEN_HEIGHT / 5,
+                  KEY_WIDTH, KEY_WIDTH / 2, gp.l_shoulder ? GREEN : RED);
+    const char *r_shoulder_txt = "rigth trigger scale up";
+    txt_width = MeasureText(r_shoulder_txt, FONT_SIZE);
+    DrawText(r_shoulder_txt,
+             SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 - txt_width / 2,
+             SCREEN_HEIGHT / 5 - KEY_WIDTH / 3, FONT_SIZE, BLACK);
+    DrawRectangle(SCREEN_WIDTH / 2  - KEY_WIDTH / 2 + SCREEN_WIDTH / 4,
+                  SCREEN_HEIGHT / 5,
+                  KEY_WIDTH, KEY_WIDTH / 2, gp.r_shoulder ? GREEN : RED);
 
     /* calibration progress bar */
     draw_progress_bar(GP_PROGRESS_BAR_TICS * PROGRESS_BAR_TIC_LEN, progress);
@@ -509,8 +541,9 @@ int main()
         .color   = RED,
     };
 
-    State state = STATE_INTRO;
-    // State state = STATE_CALIBRATE_GAMEPAD;
+    // State state = STATE_INTRO;
+    State state = STATE_CALIBRATE_GAMEPAD;
+    // State state = STATE_MOVEMENT_GAMEPAD;
     bool ready_for_transition = true;
 
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "HCI User Study - Keyboard + Mouse vs. Gamepad Controller");
