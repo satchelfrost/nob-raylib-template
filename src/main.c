@@ -8,9 +8,16 @@
 #define SCREEN_WIDTH  (16 * SCREEN_FACTOR)
 #define SCREEN_HEIGHT ( 9 * SCREEN_FACTOR)
 #define FONT_SIZE 22
+#define MARGIN 50
 
 #define KEY_SPACING 10 
 #define KEY_WIDTH 100
+#define PROGRESS_BAR_TIC_LEN 50
+#define PROGRESS_BAR_PADDING 10
+#define KM_PROGRESS_BAR_TICS 7
+#define GP_PROGRESS_BAR_TICS 10
+#define ANALOG_CIRCLE_BOUND 100
+#define ANALOG_CIRCLE_TINY 30
 
 #define MOUSE_MOVE_SENSITIVITY 0.005f
 
@@ -47,104 +54,177 @@ typedef enum {
     STATE_COUNT,
 } State;
 
+typedef struct {
+    int w;
+    int a;
+    int s;
+    int d;
+    int up;
+    int down;
+    int right_click;
+} Key_Mouse_Calibrate;
+static Key_Mouse_Calibrate km = {0};
+
+typedef struct {
+    int l_joy_up;
+    int l_joy_down;
+    int l_joy_left;
+    int l_joy_right;
+    int r_joy_up;
+    int r_joy_down;
+    int r_joy_left;
+    int r_joy_right;
+    int l_shoulder;
+    int r_shoulder;
+} Gamepad_Calibrate;
+static Gamepad_Calibrate gp = {0};
+
 void update_cube_gamepad(Cube *cube);
 void update_cube_key_mouse(Cube *cube);
 float render_text_centered(const char *msg, int y, Color color);
 
-State handle_state_change(State state)
+void draw_progress_bar(int full_bar_len, int progress)
 {
-    bool key_mouse_calibrated = false;
-    bool gamepad_calibrated = true;
-    bool key_mouse_state_done = false;
-    bool gamepad_state_done = false;
-
-    switch (state) {
-    case STATE_INTRO:
-        if (IsKeyPressed(KEY_SPACE))
-            return (state + 1) % STATE_COUNT;
-        break;
-    case STATE_CALIBRATE_KEY_MOUSE:
-        if (key_mouse_calibrated)
-            return (state + 1) % STATE_COUNT;
-        break;
-    case STATE_CALIBRATE_GAMEPAD:
-        if (gamepad_calibrated)
-            return (state + 1) % STATE_COUNT;
-        break;
-    case STATE_MOVEMENT_GAMEPAD:
-        if (gamepad_state_done)
-            return (state + 1) % STATE_COUNT;
-        break;
-    case STATE_MOVEMENT_KEY_MOUSE:
-        if (key_mouse_state_done)
-            return (state + 1) % STATE_COUNT;
-        break;
-    case STATE_END:
-    default: return state;
+    int bar_x = SCREEN_WIDTH / 2 - full_bar_len / 2;
+    const char *progress_txt = "Calibration progress";
+    int txt_width = MeasureText(progress_txt, FONT_SIZE);
+    DrawText(progress_txt,
+             SCREEN_WIDTH / 2 - txt_width / 2,
+             SCREEN_HEIGHT - MARGIN - PROGRESS_BAR_TIC_LEN - 2 * PROGRESS_BAR_PADDING - FONT_SIZE,
+             FONT_SIZE, BLACK);
+    DrawRectangle(bar_x - PROGRESS_BAR_PADDING,
+                  SCREEN_HEIGHT - MARGIN - PROGRESS_BAR_TIC_LEN - PROGRESS_BAR_PADDING,
+                  full_bar_len + 2 * PROGRESS_BAR_PADDING,
+                  PROGRESS_BAR_TIC_LEN + 2 * PROGRESS_BAR_PADDING,
+                  BLACK);
+    for (int i = 0; i < progress; i++) {
+        DrawRectangle(bar_x,
+                      SCREEN_HEIGHT - MARGIN - PROGRESS_BAR_TIC_LEN,
+                      PROGRESS_BAR_TIC_LEN,
+                      PROGRESS_BAR_TIC_LEN, GREEN);
+        bar_x += PROGRESS_BAR_TIC_LEN;
     }
-
-    return state;
 }
 
-void render_key_mouse_calibrate()
+int update_gamepad_calibrate()
 {
-    static bool w = false;
-    static bool a = false;
-    static bool s = false;
-    static bool d = false;
-    static bool up = false;
-    static bool down = false;
-    static bool mouse_right = false;
+    float left_joy_fb = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+    float left_joy_lr = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+    if (!gp.l_joy_up)    gp.l_joy_up    = (left_joy_fb <= -DEAD_ZONE);
+    if (!gp.l_joy_down)  gp.l_joy_down  = (left_joy_lr <= -DEAD_ZONE);
+    if (!gp.l_joy_left)  gp.l_joy_left  = (left_joy_fb >=  DEAD_ZONE);
+    if (!gp.l_joy_right) gp.l_joy_right = (left_joy_lr >=  DEAD_ZONE);
 
-    if (!w) w = IsKeyPressed(KEY_W);
-    if (!a) a = IsKeyPressed(KEY_A);
-    if (!s) s = IsKeyPressed(KEY_S);
-    if (!d) d = IsKeyPressed(KEY_D);
-    if (!up) up = IsKeyPressed(KEY_UP);
-    if (!down) down = IsKeyPressed(KEY_DOWN);
-    if (!mouse_right) mouse_right = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+    float right_joy_fb = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y);
+    float right_joy_lr = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X);
+    if (!gp.r_joy_up)    gp.r_joy_up    = (right_joy_fb <= -DEAD_ZONE);
+    if (!gp.r_joy_down)  gp.r_joy_down  = (right_joy_lr <= -DEAD_ZONE);
+    if (!gp.r_joy_left)  gp.r_joy_left  = (right_joy_fb >=  DEAD_ZONE);
+    if (!gp.r_joy_right) gp.r_joy_right = (right_joy_lr >=  DEAD_ZONE);
 
+    if (!gp.l_shoulder) gp.l_shoulder = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1);
+    if (!gp.r_shoulder) gp.r_shoulder = IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1);
 
+    return gp.l_joy_up + gp.l_joy_down + gp.l_joy_left + gp.l_joy_right + gp.r_joy_up +
+           gp.r_joy_down + gp.r_joy_left + gp.r_joy_right + gp.l_shoulder + gp.r_shoulder;
+}
+
+void render_gamepad_calibrate(int progress)
+{
+    const char *title = "Please test all gamepad inputs, and understand their use";
+    int txt_width = MeasureText(title, FONT_SIZE);
+    DrawText(title, SCREEN_WIDTH / 2 - txt_width / 2, MARGIN, FONT_SIZE, BLACK);
+
+    /* analog left */
+    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_BOUND, BLACK);
+    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, WHITE);
+    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2 - ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4 + ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4 - ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
+
+    /* analog right */
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_BOUND, BLACK);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, WHITE);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - ANALOG_CIRCLE_BOUND, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 + ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
+    DrawCircle(SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 - ANALOG_CIRCLE_BOUND, SCREEN_HEIGHT / 2, ANALOG_CIRCLE_TINY, RED);
+
+    /* calibration progress bar */
+    draw_progress_bar(GP_PROGRESS_BAR_TICS * PROGRESS_BAR_TIC_LEN, progress);
+
+    /* render exit text */
+    if (progress == GP_PROGRESS_BAR_TICS) {
+        const char *continue_txt = "Press SPACE to continue";
+        txt_width = MeasureText(continue_txt, FONT_SIZE);
+        DrawText(continue_txt,
+                SCREEN_WIDTH / 2 - txt_width / 2,
+                SCREEN_HEIGHT / 2 - FONT_SIZE / 2, FONT_SIZE, BLACK);
+    }
+}
+
+int update_key_mouse_calibrate()
+{
+    if (!km.w)           km.w = IsKeyPressed(KEY_W);
+    if (!km.a)           km.a = IsKeyPressed(KEY_A);
+    if (!km.s)           km.s = IsKeyPressed(KEY_S);
+    if (!km.d)           km.d = IsKeyPressed(KEY_D);
+    if (!km.up)          km.up = IsKeyPressed(KEY_UP);
+    if (!km.down)        km.down = IsKeyPressed(KEY_DOWN);
+    if (!km.right_click) km.right_click = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+
+    return km.w + km.a + km.s + km.d + km.up + km.down + km.right_click;
+}
+
+void render_key_mouse_calibrate(int progress)
+{
+    const char *title = "Please test all keybord + mouse inputs, and understand their use";
+    int txt_width = MeasureText(title, FONT_SIZE);
+    DrawText(title, SCREEN_WIDTH / 2 - txt_width / 2, MARGIN - 10, FONT_SIZE, BLACK);
+
+    /* wasd */
     int x_offset = SCREEN_WIDTH / 4;
     const char *wasd = "W, A, S, D, for translation";
-    int txt_width = MeasureText(wasd, FONT_SIZE);
+    txt_width = MeasureText(wasd, FONT_SIZE);
     DrawText(wasd,
              x_offset - txt_width / 2,
              SCREEN_HEIGHT / 2 - FONT_SIZE - KEY_WIDTH / 2 - KEY_SPACING,
              FONT_SIZE, BLACK);
-
-    /* W */
-    DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2,
+    /* w */
+    DrawRectangle(-x_offset + SCREEN_WIDTH / 2 - KEY_WIDTH / 2,
                   SCREEN_HEIGHT / 2 - KEY_WIDTH / 2,
-                  KEY_WIDTH, KEY_WIDTH, w ? GREEN: RED);
-    /* A */
-    DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2 - KEY_WIDTH - KEY_SPACING,
+                  KEY_WIDTH, KEY_WIDTH, km.w ? GREEN: RED);
+    /* a */
+    DrawRectangle(-x_offset + SCREEN_WIDTH / 2 - KEY_WIDTH / 2 - KEY_WIDTH - KEY_SPACING,
                   SCREEN_HEIGHT / 2 - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
-                  KEY_WIDTH, KEY_WIDTH, a ? GREEN : RED);
-    /* S */
+                  KEY_WIDTH, KEY_WIDTH, km.a ? GREEN : RED);
+    /* s */
     DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2,
                   SCREEN_HEIGHT / 2 - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
-                  KEY_WIDTH, KEY_WIDTH, s ? GREEN : RED);
-    /* D */
+                  KEY_WIDTH, KEY_WIDTH, km.s ? GREEN : RED);
+    /* d */
     DrawRectangle(-x_offset + SCREEN_WIDTH / 2  - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
                   SCREEN_HEIGHT / 2 - KEY_WIDTH / 2 + KEY_WIDTH + KEY_SPACING,
-                  KEY_WIDTH, KEY_WIDTH, d ? GREEN : RED);
+                  KEY_WIDTH, KEY_WIDTH, km.d ? GREEN : RED);
 
-    /* up/down arrow gui*/
-    // const char *up_down_txt = "up/down arrows scales cube";
-    // txt_width = MeasureText(up_down_txt, FONT_SIZE);
-    // DrawText(up_down_txt,
-    //          txt_width / 2,
-    //          SCREEN_HEIGHT / 2 - FONT_SIZE - KEY_WIDTH / 2 - KEY_SPACING,
-    //          FONT_SIZE, BLACK);
-    // DrawRectangle(KEY_WIDTH / 2,
-    //               SCREEN_HEIGHT / 2 - KEY_WIDTH / 2,
-    //               KEY_WIDTH, KEY_WIDTH, up ? GREEN : RED);
+    /* up/down arrow */
+    const char *up_down_txt = "up/down arrows for scaling";
+    txt_width = MeasureText(up_down_txt, FONT_SIZE);
+    DrawText(up_down_txt,
+             SCREEN_WIDTH / 2 - txt_width / 2,
+             SCREEN_HEIGHT / 4 - FONT_SIZE - KEY_WIDTH / 2 - KEY_SPACING,
+             FONT_SIZE, BLACK);
+    DrawRectangle(SCREEN_WIDTH / 2 - KEY_WIDTH  - KEY_SPACING / 2,
+                  SCREEN_HEIGHT / 4 - KEY_WIDTH / 2,
+                  KEY_WIDTH, KEY_WIDTH, km.up ? GREEN : RED);
+    DrawRectangle(SCREEN_WIDTH / 2 - KEY_WIDTH / 2 + KEY_WIDTH / 2 + KEY_SPACING / 2,
+                  SCREEN_HEIGHT / 4 - KEY_WIDTH / 2,
+                  KEY_WIDTH, KEY_WIDTH, km.down ? GREEN : RED);
 
-
-    /* mouse right click gui */
+    /* mouse right click */
     x_offset += SCREEN_WIDTH / 2;
-    const char *mouse_txt = "Right click does rotation";
+    const char *mouse_txt = "Right-click + mouse movement for rotation";
     txt_width = MeasureText(mouse_txt, FONT_SIZE);
     DrawText(mouse_txt,
              x_offset - txt_width / 2,
@@ -152,7 +232,19 @@ void render_key_mouse_calibrate()
              FONT_SIZE, BLACK);
     DrawRectangle(x_offset - KEY_WIDTH / 2,
                   SCREEN_HEIGHT / 2 - KEY_WIDTH / 2,
-                  KEY_WIDTH, KEY_WIDTH, mouse_right ? GREEN : RED);
+                  KEY_WIDTH, KEY_WIDTH, km.right_click ? GREEN : RED);
+
+    /* calibration progress bar */
+    draw_progress_bar(KM_PROGRESS_BAR_TICS * PROGRESS_BAR_TIC_LEN, progress);
+
+    /* render exit text */
+    if (progress == KM_PROGRESS_BAR_TICS) {
+        const char *continue_txt = "Press SPACE to continue";
+        txt_width = MeasureText(continue_txt, FONT_SIZE);
+        DrawText(continue_txt,
+                SCREEN_WIDTH / 2 - txt_width / 2,
+                SCREEN_HEIGHT / 2 - FONT_SIZE / 2, FONT_SIZE, BLACK);
+    }
 }
 
 float render_text_centered(const char *msg, int y, Color color)
@@ -210,7 +302,7 @@ void render_intro()
         {.txt = end_msg, .color = BLACK, .center = true},
     };
 
-    int y = 50;
+    int y = MARGIN;
     float x = 0;
     for (int i = 0; i < (int)ARRAY_LEN(msgs); i++) {
         if (msgs[i].center)
@@ -315,15 +407,13 @@ void update_cube_gamepad(Cube *cube)
     if (lr >=  DEAD_ZONE) cube->pos = Vector3Add(cube->pos, Vector3Scale(right,    speed * lr_norm));
 
     /* scaling */
-    if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1) ||
-        IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
+    if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) {
         float scale = (cube->size.x + SCALE_SPEED * dt < MAX_CUBE_SCALE) ? SCALE_SPEED * dt : 0.0f;
         cube->size.x += scale;
         cube->size.y += scale;
         cube->size.z += scale;
     }
-    if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1) ||
-        IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
+    if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) {
         float scale = (cube->size.x + SCALE_SPEED * dt > MIN_CUBE_SCALE) ? SCALE_SPEED * dt : 0.0f;
         cube->size.x -= scale;
         cube->size.y -= scale;
@@ -368,7 +458,7 @@ void update_cube_key_mouse(Cube *cube)
     }
 }
 
-static Matrix default_cubes[NUM_TARGET_CUBES] = {
+static Matrix target_cubes[NUM_TARGET_CUBES] = {
     {
         0.74, -0.26, -0.62, 1.55,
         0.00, 0.92, -0.38, 0.96,
@@ -420,25 +510,28 @@ int main()
     };
 
     State state = STATE_INTRO;
-    // State state = STATE_CALIBRATE_KEY_MOUSE;
-
-    Matrix target_cubes[NUM_TARGET_CUBES] = {0};
-    for (int i = 0; i < NUM_TARGET_CUBES; i++)
-        target_cubes[i] = default_cubes[i];
+    // State state = STATE_CALIBRATE_GAMEPAD;
+    bool ready_for_transition = true;
 
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "HCI User Study - Keyboard + Mouse vs. Gamepad Controller");
     SetTargetFPS(60);
 
     while(!WindowShouldClose()) {
-        state = handle_state_change(state);
+        if (ready_for_transition && IsKeyPressed(KEY_SPACE))
+            state = (state + 1) % STATE_COUNT;
 
         /* update */
+        int progress = 0;
         switch(state) {
         case STATE_INTRO:
             break;
         case STATE_CALIBRATE_KEY_MOUSE:
+            progress = update_key_mouse_calibrate();
+            ready_for_transition = (progress == KM_PROGRESS_BAR_TICS) ? true : false;
             break;
         case STATE_CALIBRATE_GAMEPAD:
+            progress = update_gamepad_calibrate();
+            ready_for_transition = (progress == GP_PROGRESS_BAR_TICS) ? true : false;
             break;
         case STATE_MOVEMENT_KEY_MOUSE:
         case STATE_MOVEMENT_GAMEPAD:
@@ -457,9 +550,10 @@ int main()
                 render_intro();
                 break;
             case STATE_CALIBRATE_KEY_MOUSE:
-                render_key_mouse_calibrate();
+                render_key_mouse_calibrate(progress);
                 break;
             case STATE_CALIBRATE_GAMEPAD:
+                render_gamepad_calibrate(progress);
                 break;
             case STATE_MOVEMENT_KEY_MOUSE:
             case STATE_MOVEMENT_GAMEPAD:
