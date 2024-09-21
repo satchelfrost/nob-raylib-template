@@ -79,9 +79,153 @@ typedef struct {
 } Gamepad_Calibrate;
 static Gamepad_Calibrate gp = {0};
 
+static int key_mouse_guesses = 0;
+static int gamepad_guesses = 0;
+static Matrix gamepad_mats[NUM_TARGET_CUBES] = {
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+};
+static Matrix key_mouse_mats[NUM_TARGET_CUBES] = {
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    },
+};
+
+static Matrix target_cubes[NUM_TARGET_CUBES] = {
+    {
+        0.74, -0.26, -0.62, 1.55,
+        0.00, 0.92, -0.38, 0.96,
+        0.67, 0.28, 0.69, 5.33,
+        0.00, 0.00, 0.00, 1.00,
+    },
+    {
+        0.43, 0.32, 0.85, -0.62,
+        0.00, 0.94, -0.35, 1.07,
+        -0.90, 0.15, 0.40, 9.24,
+        0.00, 0.00, 0.00, 1.00,
+    },
+    {
+        1.98, -0.02, -0.28, -3.77,
+        0.00, 2.00, -0.13, 0.21,
+        0.28, 0.13, 1.98, -3.94,
+        0.00, 0.00, 0.00, 1.00,
+    },
+    {
+        0.38, -0.23, -1.13, 7.47,
+        0.00, 1.19, -0.24, 0.14,
+        1.15, 0.07, 0.37, -6.20,
+        0.00, 0.00, 0.00, 1.00,
+    },
+    {
+        0.98, 0.28, 0.43, 7.20,
+        0.00, 0.93, -0.60, -2.99,
+        -0.51, 0.53, 0.83, 0.36,
+        0.00, 0.00, 0.00, 1.00,
+    },
+    // {
+    //     1.0f, 0.0f, 0.0f, 0.0f,
+    //     0.0f, 1.0f, 0.0f, 0.0f,
+    //     0.0f, 0.0f, 1.0f, 0.0f,
+    //     0.0f, 0.0f, 0.0f, 1.0f
+    // },
+    // {
+    //     1.0f, 0.0f, 0.0f, 0.0f,
+    //     0.0f, 1.0f, 0.0f, 0.0f,
+    //     0.0f, 0.0f, 1.0f, 0.0f,
+    //     0.0f, 0.0f, 0.0f, 1.0f
+    // },
+    // {
+    //     1.0f, 0.0f, 0.0f, 0.0f,
+    //     0.0f, 1.0f, 0.0f, 0.0f,
+    //     0.0f, 0.0f, 1.0f, 0.0f,
+    //     0.0f, 0.0f, 0.0f, 1.0f
+    // },
+    // {
+    //     1.0f, 0.0f, 0.0f, 0.0f,
+    //     0.0f, 1.0f, 0.0f, 0.0f,
+    //     0.0f, 0.0f, 1.0f, 0.0f,
+    //     0.0f, 0.0f, 0.0f, 1.0f
+    // },
+    // {
+    //     1.0f, 0.0f, 0.0f, 0.0f,
+    //     0.0f, 1.0f, 0.0f, 0.0f,
+    //     0.0f, 0.0f, 1.0f, 0.0f,
+    //     0.0f, 0.0f, 0.0f, 1.0f
+    // },
+};
+
+
 void update_cube_gamepad(Cube *cube);
 void update_cube_key_mouse(Cube *cube);
 float render_text_centered(const char *msg, int y, Color color);
+
+void print_matrix(Matrix *matrices, int num_mats)
+{
+    for (int i = 0; i < num_mats; i++) {
+        Matrix m = matrices[i];
+        TraceLog(LOG_INFO, "{");
+        TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,", m.m0, m.m4, m.m8,  m.m12);
+        TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,", m.m1, m.m5, m.m9,  m.m13);
+        TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,", m.m2, m.m6, m.m10, m.m14);
+        TraceLog(LOG_INFO, "    %.2f, %.2f, %.2f, %.2f,", m.m3, m.m7, m.m11, m.m15);
+        TraceLog(LOG_INFO, "},");
+    }
+}
 
 void draw_progress_bar(int full_bar_len, int progress)
 {
@@ -345,11 +489,10 @@ void render_intro()
     }
 }
 
-void movement_state_update(State state, Cube *cube)
+int update_movement_state(State state, Cube *cube)
 {
-    if (state == STATE_MOVEMENT_KEY_MOUSE)    update_cube_key_mouse(cube);
-    else if (state == STATE_MOVEMENT_GAMEPAD) update_cube_gamepad(cube);
-    else return;
+    if (state == STATE_MOVEMENT_KEY_MOUSE) update_cube_key_mouse(cube);
+    if (state == STATE_MOVEMENT_GAMEPAD)   update_cube_gamepad(cube);
 
     /* bounds check */
     if (cube->pos.x < -BOUNDS || cube->pos.x > BOUNDS ||
@@ -362,34 +505,49 @@ void movement_state_update(State state, Cube *cube)
     Matrix t = MatrixTranslate(cube->pos.x, cube->pos.y, cube->pos.z);
     Matrix s = MatrixScale(cube->size.x, cube->size.y, cube->size.z);
     cube->m = MatrixMultiply(s, MatrixMultiply(r, t));
+
+    /* commit the guess */
+    if (IsKeyPressed(KEY_ENTER)) {
+        if (state == STATE_MOVEMENT_KEY_MOUSE) {
+            if (key_mouse_guesses + 1 <= NUM_TARGET_CUBES)
+                key_mouse_mats[key_mouse_guesses++] = cube->m;
+        }
+        if (state == STATE_MOVEMENT_GAMEPAD) {
+            if (gamepad_guesses + 1 <= NUM_TARGET_CUBES)
+                gamepad_mats[gamepad_guesses++] = cube->m;
+        }
+    }
+
+    if (state == STATE_MOVEMENT_KEY_MOUSE) return key_mouse_guesses;
+    if (state == STATE_MOVEMENT_GAMEPAD)   return gamepad_guesses;
+
+    return -1;
 }
 
-void movement_state_render(Cube cube, Matrix *target_cubes)
+void render_movement_state(Cube cube, Matrix *target_cubes, int progress)
 {
     DrawGrid(20, 1);
 
     /* target cubes */
-    for (int i = 0; i < NUM_TARGET_CUBES; i++) {
+    rlPushMatrix();
+        rlMultMatrixf(MatrixToFloatV(target_cubes[progress]).v);
+        DrawCubeWiresV((Vector3){0.0f, 0.0f, 0.0f}, (Vector3){1.0f, 1.0f, 1.0f}, BLACK);
         rlPushMatrix();
-            rlMultMatrixf(MatrixToFloatV(target_cubes[i]).v);
-            DrawCubeWiresV((Vector3){0.0f, 0.0f, 0.0f}, (Vector3){1.0f, 1.0f, 1.0f}, BLACK);
-            rlPushMatrix();
-                DrawLine3D((Vector3){0.0f, 0.0f, -0.5f}, (Vector3){0.0f, 0.0f, -2.0f}, BLACK);
-                rlTranslatef(0.0f, 0.0f, -2.0f);
-                DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, BLUE);
-            rlPopMatrix();
-            rlPushMatrix();
-                DrawLine3D((Vector3){0.0f, 0.5f, 0.0f}, (Vector3){0.0f, 2.0f, 0.0f}, BLACK);
-                rlTranslatef(0.0f, 2.0f, 0.0f);
-                DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, GREEN);
-            rlPopMatrix();
-            rlPushMatrix();
-                DrawLine3D((Vector3){0.5f, 0.0f, 0.0f}, (Vector3){2.0f, 0.0f, 0.0f}, BLACK);
-                rlTranslatef(2.0f, 0.0f, 0.0f);
-                DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, MAGENTA);
-            rlPopMatrix();
+            DrawLine3D((Vector3){0.0f, 0.0f, -0.5f}, (Vector3){0.0f, 0.0f, -2.0f}, BLACK);
+            rlTranslatef(0.0f, 0.0f, -2.0f);
+            DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, BLUE);
         rlPopMatrix();
-    }
+        rlPushMatrix();
+            DrawLine3D((Vector3){0.0f, 0.5f, 0.0f}, (Vector3){0.0f, 2.0f, 0.0f}, BLACK);
+            rlTranslatef(0.0f, 2.0f, 0.0f);
+            DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, GREEN);
+        rlPopMatrix();
+        rlPushMatrix();
+            DrawLine3D((Vector3){0.5f, 0.0f, 0.0f}, (Vector3){2.0f, 0.0f, 0.0f}, BLACK);
+            rlTranslatef(2.0f, 0.0f, 0.0f);
+            DrawSphere((Vector3){0.0f, 0.0f, 0.0f}, 0.1f, MAGENTA);
+        rlPopMatrix();
+    rlPopMatrix();
 
     /* user controlled cube */
     rlPushMatrix();
@@ -490,38 +648,52 @@ void update_cube_key_mouse(Cube *cube)
     }
 }
 
-static Matrix target_cubes[NUM_TARGET_CUBES] = {
-    {
-        0.74, -0.26, -0.62, 1.55,
-        0.00, 0.92, -0.38, 0.96,
-        0.67, 0.28, 0.69, 5.33,
-        0.00, 0.00, 0.00, 1.00,
-    },
-    {
-        0.43, 0.32, 0.85, -0.62,
-        0.00, 0.94, -0.35, 1.07,
-        -0.90, 0.15, 0.40, 9.24,
-        0.00, 0.00, 0.00, 1.00,
-    },
-    {
-        1.98, -0.02, -0.28, -3.77,
-        0.00, 2.00, -0.13, 0.21,
-        0.28, 0.13, 1.98, -3.94,
-        0.00, 0.00, 0.00, 1.00,
-    },
-    {
-        0.38, -0.23, -1.13, 7.47,
-        0.00, 1.19, -0.24, 0.14,
-        1.15, 0.07, 0.37, -6.20,
-        0.00, 0.00, 0.00, 1.00,
-    },
-    {
-        0.98, 0.28, 0.43, 7.20,
-        0.00, 0.93, -0.60, -2.99,
-        -0.51, 0.53, 0.83, 0.36,
-        0.00, 0.00, 0.00, 1.00,
-    },
-};
+void render_transition_banner(const char *msg)
+{
+    int txt_width = MeasureText(msg, FONT_SIZE);
+    DrawText(msg, SCREEN_WIDTH / 2 - txt_width / 2, SCREEN_HEIGHT / 2, FONT_SIZE, BLACK);
+}
+
+void calculate_score(Matrix *correct, Matrix *guessed)
+{
+    /* Euclidean distance score */
+    float distance_sum = 0.0f;
+    for (int i = 0; i < NUM_TARGET_CUBES; i++) {
+        Vector3 correct_pos = {correct[i].m12, correct[i].m13, correct[i].m14};
+        Vector3 guessed_pos = {guessed[i].m12, guessed[i].m13, guessed[i].m14};
+        distance_sum += Vector3Distance(correct_pos, guessed_pos);
+    }
+    float ave_distance = distance_sum / NUM_TARGET_CUBES;
+
+    /* Scale score */
+    float scale_sum = 0.0f;
+    for (int i = 0; i < NUM_TARGET_CUBES; i++) {
+        float correct_scale_x = sqrtf(correct[i].m0 * correct[i].m0 +
+                                      correct[i].m1 * correct[i].m1 +
+                                      correct[i].m2 * correct[i].m2);
+        float guessed_scale_x = sqrtf(guessed[i].m0 * guessed[i].m0 +
+                                      guessed[i].m1 * guessed[i].m1 +
+                                      guessed[i].m2 * guessed[i].m2);
+        scale_sum += fabsf(correct_scale_x - guessed_scale_x);
+    }
+    float ave_scale = scale_sum / NUM_TARGET_CUBES;
+
+    /* rotation score*/
+    float quat_sum = 0.0f;
+    for (int i = 0; i < NUM_TARGET_CUBES; i++) {
+        Quaternion correct_quat = QuaternionNormalize(QuaternionFromMatrix(correct[i]));
+        Quaternion guessed_quat = QuaternionNormalize(QuaternionFromMatrix(guessed[i]));
+        quat_sum += fabsf(correct_quat.x*guessed_quat.x +
+                          correct_quat.y*guessed_quat.y +
+                          correct_quat.z*guessed_quat.z +
+                          correct_quat.w*guessed_quat.w);
+    }
+    float ave_quat = quat_sum / NUM_TARGET_CUBES;
+
+    TraceLog(LOG_INFO, "average distance %f", ave_distance);
+    TraceLog(LOG_INFO, "average scale %f", ave_scale);
+    TraceLog(LOG_INFO, "average quaternion %f", ave_quat);
+}
 
 int main()
 {
@@ -542,7 +714,8 @@ int main()
     };
 
     // State state = STATE_INTRO;
-    State state = STATE_CALIBRATE_GAMEPAD;
+    // State state = STATE_CALIBRATE_GAMEPAD;
+    State state = STATE_MOVEMENT_KEY_MOUSE;
     // State state = STATE_MOVEMENT_GAMEPAD;
     bool ready_for_transition = true;
 
@@ -550,8 +723,19 @@ int main()
     SetTargetFPS(60);
 
     while(!WindowShouldClose()) {
-        if (ready_for_transition && IsKeyPressed(KEY_SPACE))
+        if (ready_for_transition && IsKeyPressed(KEY_SPACE)) {
             state = (state + 1) % STATE_COUNT;
+            if (state == STATE_END) {
+                TraceLog(LOG_INFO, "key mouse mats");
+                print_matrix(key_mouse_mats, NUM_TARGET_CUBES);
+                calculate_score(target_cubes, key_mouse_mats);
+
+
+                TraceLog(LOG_INFO, "gamepad mats");
+                print_matrix(gamepad_mats, NUM_TARGET_CUBES);
+                calculate_score(target_cubes, gamepad_mats);
+            }
+        }
 
         /* update */
         int progress = 0;
@@ -568,9 +752,11 @@ int main()
             break;
         case STATE_MOVEMENT_KEY_MOUSE:
         case STATE_MOVEMENT_GAMEPAD:
-            movement_state_update(state, &cube);
+            progress = update_movement_state(state, &cube);
+            ready_for_transition = (progress == NUM_TARGET_CUBES) ? true : false;
             break;
         case STATE_END:
+            ready_for_transition = false;
         default:
             break;
         }
@@ -578,26 +764,64 @@ int main()
         /* drawing */
         BeginDrawing();
             ClearBackground(RAYWHITE);
-            switch(state) {
-            case STATE_INTRO:
-                render_intro();
-                break;
-            case STATE_CALIBRATE_KEY_MOUSE:
-                render_key_mouse_calibrate(progress);
-                break;
-            case STATE_CALIBRATE_GAMEPAD:
-                render_gamepad_calibrate(progress);
-                break;
-            case STATE_MOVEMENT_KEY_MOUSE:
-            case STATE_MOVEMENT_GAMEPAD:
-                BeginMode3D(camera);
-                    movement_state_render(cube, target_cubes);
-                EndMode3D();
-                break;
-            case STATE_END:
-            default:
-                break;
-            }
+                switch(state) {
+                case STATE_INTRO:
+                    render_intro();
+                    break;
+                case STATE_CALIBRATE_KEY_MOUSE:
+                    render_key_mouse_calibrate(progress);
+                    break;
+                case STATE_CALIBRATE_GAMEPAD:
+                    render_gamepad_calibrate(progress);
+                    break;
+                case STATE_MOVEMENT_KEY_MOUSE:
+                    if (ready_for_transition) {
+                        render_transition_banner("Press space to move to gamepad experiment");
+                    } else {
+                        render_text_centered("Keyboard Experiment", MARGIN / 2, BLACK);
+                        render_text_centered(
+                            "Try to overlap the cubes as closely as possible using:",
+                            MARGIN / 2 + FONT_SIZE * 1.2, BLACK
+                        );
+                        render_text_centered(
+                            "WASD to translate, mouse + right-click for rotation, and key up/down to scale",
+                            MARGIN / 2 + FONT_SIZE * 1.2 * 2, BLACK
+                        );
+                        render_text_centered(
+                            "Press enter when you're satisfied with the overlap",
+                            MARGIN / 2 + FONT_SIZE * 1.2 * 3, RED
+                        );
+                        BeginMode3D(camera);
+                            render_movement_state(cube, target_cubes, progress);
+                        EndMode3D();
+                    }
+                    break;
+                case STATE_MOVEMENT_GAMEPAD:
+                    if (ready_for_transition) {
+                        render_transition_banner("Press space to move to results");
+                    } else {
+                        render_text_centered("Gamepad Experiment", MARGIN / 2, BLACK);
+                        render_text_centered(
+                            "Try to overlap the cubes as closely as possible using:",
+                            MARGIN / 2 + FONT_SIZE * 1.2, BLACK
+                        );
+                        render_text_centered(
+                            "left analog translate, right analog for rotation, and left/right trigger to scale",
+                            MARGIN / 2 + FONT_SIZE * 1.2 * 2, BLACK
+                        );
+                        render_text_centered(
+                            "Press enter (on the keyboard) when you're satisfied with the overlap",
+                            MARGIN / 2 + FONT_SIZE * 1.2 * 3, RED
+                        );
+                        BeginMode3D(camera);
+                            render_movement_state(cube, target_cubes, progress);
+                        EndMode3D();
+                    }
+                    break;
+                case STATE_END:
+                default:
+                    break;
+                }
         EndDrawing();
     }
     CloseWindow();
