@@ -55,6 +55,12 @@ typedef enum {
 } State;
 
 typedef struct {
+    float ave_distance_diff;
+    float ave_scale_diff;
+    float ave_quat_dot;
+} Score;
+
+typedef struct {
     int w;
     int a;
     int s;
@@ -213,6 +219,57 @@ static Matrix target_cubes[NUM_TARGET_CUBES] = {
 void update_cube_gamepad(Cube *cube);
 void update_cube_key_mouse(Cube *cube);
 float render_text_centered(const char *msg, int y, Color color);
+
+void render_end_state(Score key_mouse_score, Score gamepad_score)
+{
+    /* gamepad score */
+    const char *gamepad_score_txt = "Gamepad score (lower is better)";
+    int txt_width = MeasureText(gamepad_score_txt, FONT_SIZE);
+    DrawText(gamepad_score_txt, SCREEN_WIDTH / 4 - txt_width / 2, MARGIN, FONT_SIZE, BLACK);
+    DrawLineEx((Vector2){SCREEN_WIDTH / 4 - txt_width / 2 - 0.1f , MARGIN + FONT_SIZE + 0.1f},
+               (Vector2){SCREEN_WIDTH / 4 + txt_width / 2 + 0.1f, MARGIN + FONT_SIZE + 0.1f},
+               2.0f,
+               BLACK);
+    const char *gamepad_dist = TextFormat("Average Euclidean distance score %f", gamepad_score.ave_distance_diff);
+    txt_width = MeasureText(gamepad_dist, FONT_SIZE);
+    DrawText(gamepad_dist, SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2, FONT_SIZE, BLACK);
+    const char *gamepad_scale = TextFormat("Average scale score %f", gamepad_score.ave_scale_diff);
+    DrawText(gamepad_scale, SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2 * 2, FONT_SIZE, BLACK);
+    const char *gamepad_quat = TextFormat("Average quaternion score %f", gamepad_score.ave_quat_dot);
+    DrawText(gamepad_quat, SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2 * 3, FONT_SIZE, BLACK);
+    float gamepad_overall_score = gamepad_score.ave_distance_diff +
+                                  gamepad_score.ave_scale_diff +
+                                  gamepad_score.ave_quat_dot;
+    const char *gamepad_overall = TextFormat("overall score %f", gamepad_overall_score);
+    DrawText(gamepad_overall, SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2 * 4, FONT_SIZE, RED);
+
+    /* key mouse score */
+    float x_offset = SCREEN_WIDTH / 2;
+    const char *key_mouse_score_txt = "Keyboard + Mouse score (lower is better)";
+    txt_width = MeasureText(key_mouse_score_txt, FONT_SIZE);
+    DrawText(key_mouse_score_txt, x_offset + SCREEN_WIDTH / 4 - txt_width / 2, MARGIN, FONT_SIZE, BLACK);
+    DrawLineEx((Vector2){x_offset + SCREEN_WIDTH / 4 - txt_width / 2 - 0.1f , MARGIN + FONT_SIZE + 0.1f},
+               (Vector2){x_offset + SCREEN_WIDTH / 4 + txt_width / 2 + 0.1f, MARGIN + FONT_SIZE + 0.1f},
+               2.0f,
+               BLACK);
+    const char *key_mouse_dist = TextFormat("Average Euclidean distance score %f", key_mouse_score.ave_distance_diff);
+    txt_width = MeasureText(key_mouse_dist, FONT_SIZE);
+    DrawText(key_mouse_dist, x_offset + SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2, FONT_SIZE, BLACK);
+    const char *key_mouse_scale = TextFormat("Average scale score %f", key_mouse_score.ave_scale_diff);
+    DrawText(key_mouse_scale, x_offset + SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2 * 2, FONT_SIZE, BLACK);
+    const char *key_mouse_quat = TextFormat("Average quaternion score %f", key_mouse_score.ave_quat_dot);
+    DrawText(key_mouse_quat, x_offset + SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2 * 3, FONT_SIZE, BLACK);
+    float key_mouse_overall_score = key_mouse_score.ave_distance_diff +
+                                    key_mouse_score.ave_scale_diff +
+                                    key_mouse_score.ave_quat_dot;
+    const char *key_mouse_overall = TextFormat("overall score %f", key_mouse_overall_score);
+    DrawText(key_mouse_overall, x_offset + SCREEN_WIDTH / 4 - txt_width / 2, MARGIN + FONT_SIZE * 1.2 * 4, FONT_SIZE, RED);
+
+    /* final message */
+    const char *final = "Please screen shot the entire window and send it to reese.gallagher@ucf.edu";
+    txt_width = MeasureText(final, FONT_SIZE);
+    DrawText(final, SCREEN_WIDTH / 2 - txt_width / 2, SCREEN_HEIGHT / 2, FONT_SIZE, BLACK);
+}
 
 void print_matrix(Matrix *matrices, int num_mats)
 {
@@ -654,8 +711,10 @@ void render_transition_banner(const char *msg)
     DrawText(msg, SCREEN_WIDTH / 2 - txt_width / 2, SCREEN_HEIGHT / 2, FONT_SIZE, BLACK);
 }
 
-void calculate_score(Matrix *correct, Matrix *guessed)
+Score calculate_score(Matrix *correct, Matrix *guessed)
 {
+    Score score = {0};
+
     /* Euclidean distance score */
     float distance_sum = 0.0f;
     for (int i = 0; i < NUM_TARGET_CUBES; i++) {
@@ -663,7 +722,7 @@ void calculate_score(Matrix *correct, Matrix *guessed)
         Vector3 guessed_pos = {guessed[i].m12, guessed[i].m13, guessed[i].m14};
         distance_sum += Vector3Distance(correct_pos, guessed_pos);
     }
-    float ave_distance = distance_sum / NUM_TARGET_CUBES;
+    score.ave_distance_diff = distance_sum / NUM_TARGET_CUBES;
 
     /* Scale score */
     float scale_sum = 0.0f;
@@ -676,7 +735,7 @@ void calculate_score(Matrix *correct, Matrix *guessed)
                                       guessed[i].m2 * guessed[i].m2);
         scale_sum += fabsf(correct_scale_x - guessed_scale_x);
     }
-    float ave_scale = scale_sum / NUM_TARGET_CUBES;
+    score.ave_scale_diff = scale_sum / NUM_TARGET_CUBES;
 
     /* rotation score*/
     float quat_sum = 0.0f;
@@ -688,11 +747,13 @@ void calculate_score(Matrix *correct, Matrix *guessed)
                           correct_quat.z*guessed_quat.z +
                           correct_quat.w*guessed_quat.w);
     }
-    float ave_quat = quat_sum / NUM_TARGET_CUBES;
+    score.ave_quat_dot = 1.0f - (quat_sum / NUM_TARGET_CUBES);
 
-    TraceLog(LOG_INFO, "average distance %f", ave_distance);
-    TraceLog(LOG_INFO, "average scale %f", ave_scale);
-    TraceLog(LOG_INFO, "average quaternion %f", ave_quat);
+    TraceLog(LOG_INFO, "average distance %f", score.ave_distance_diff);
+    TraceLog(LOG_INFO, "average scale %f", score.ave_scale_diff);
+    TraceLog(LOG_INFO, "average quaternion %f", score.ave_quat_dot);
+
+    return score;
 }
 
 int main()
@@ -713,11 +774,10 @@ int main()
         .color   = RED,
     };
 
-    // State state = STATE_INTRO;
-    // State state = STATE_CALIBRATE_GAMEPAD;
-    State state = STATE_MOVEMENT_KEY_MOUSE;
-    // State state = STATE_MOVEMENT_GAMEPAD;
+    State state = STATE_INTRO;
     bool ready_for_transition = true;
+    Score key_mouse_score = {0};
+    Score gamepad_score = {0};
 
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "HCI User Study - Keyboard + Mouse vs. Gamepad Controller");
     SetTargetFPS(60);
@@ -726,14 +786,8 @@ int main()
         if (ready_for_transition && IsKeyPressed(KEY_SPACE)) {
             state = (state + 1) % STATE_COUNT;
             if (state == STATE_END) {
-                TraceLog(LOG_INFO, "key mouse mats");
-                print_matrix(key_mouse_mats, NUM_TARGET_CUBES);
-                calculate_score(target_cubes, key_mouse_mats);
-
-
-                TraceLog(LOG_INFO, "gamepad mats");
-                print_matrix(gamepad_mats, NUM_TARGET_CUBES);
-                calculate_score(target_cubes, gamepad_mats);
+                key_mouse_score = calculate_score(target_cubes, key_mouse_mats);
+                gamepad_score = calculate_score(target_cubes, gamepad_mats);
             }
         }
 
@@ -819,6 +873,7 @@ int main()
                     }
                     break;
                 case STATE_END:
+                    render_end_state(key_mouse_score, gamepad_score);
                 default:
                     break;
                 }
