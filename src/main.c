@@ -638,8 +638,19 @@ void update_cube_gamepad(Cube *cube)
     /* rotation */
     float joy_x = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X); 
     float joy_y = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y);
-    Vector3 rot_y = Vector3RotateByAxisAngle(forward, up,    -joy_x * dt * GAMEPAD_ROTATION_SPEED);
-    Vector3 rot_x = Vector3RotateByAxisAngle(forward, right, -joy_y * dt * GAMEPAD_ROTATION_SPEED);
+    Vector3 rot_y = {0};
+    Vector3 rot_x = {0};
+    if (fabsf(joy_x) > DEAD_ZONE)
+        rot_y = Vector3RotateByAxisAngle(forward, up,    -joy_x * dt * GAMEPAD_ROTATION_SPEED);
+    else
+        rot_y = Vector3RotateByAxisAngle(forward, up,    0);
+    if (fabsf(joy_y) > DEAD_ZONE)
+        rot_x = Vector3RotateByAxisAngle(forward, right, -joy_y * dt * GAMEPAD_ROTATION_SPEED);
+    else
+        rot_x = Vector3RotateByAxisAngle(forward, right, 0);
+
+    // Vector3 rot_y = Vector3RotateByAxisAngle(forward, up,     -joy_x * dt * GAMEPAD_ROTATION_SPEED);
+    // Vector3 rot_x =  Vector3RotateByAxisAngle(forward, right, -joy_y * dt * GAMEPAD_ROTATION_SPEED);
     cube->forward = Vector3Normalize(Vector3Add(rot_y, rot_x));
 
     /* translation */
@@ -774,7 +785,8 @@ int main()
         .color   = RED,
     };
 
-    State state = STATE_INTRO;
+    // State state = STATE_INTRO;
+    State state = STATE_MOVEMENT_GAMEPAD;
     bool ready_for_transition = true;
     Score key_mouse_score = {0};
     Score gamepad_score = {0};
