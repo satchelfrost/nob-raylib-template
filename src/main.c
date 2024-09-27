@@ -367,7 +367,7 @@ void render_gamepad_calibrate(int progress)
              SCREEN_HEIGHT / 2 + ANALOG_CIRCLE_BOUND + ANALOG_CIRCLE_BOUND / 2, FONT_SIZE, BLACK);
 
     /* shoulder buttons */
-    const char *l_shoulder_txt = "left trigger scale down";
+    const char *l_shoulder_txt = "left shoulder scale down";
     txt_width = MeasureText(l_shoulder_txt, FONT_SIZE);
     DrawText(l_shoulder_txt,
              SCREEN_WIDTH / 4 - txt_width / 2,
@@ -375,7 +375,7 @@ void render_gamepad_calibrate(int progress)
     DrawRectangle(SCREEN_WIDTH / 2  - KEY_WIDTH / 2 - SCREEN_WIDTH / 4,
                   SCREEN_HEIGHT / 5,
                   KEY_WIDTH, KEY_WIDTH / 2, gp.l_shoulder ? GREEN : RED);
-    const char *r_shoulder_txt = "rigth trigger scale up";
+    const char *r_shoulder_txt = "rigth shoulder scale up";
     txt_width = MeasureText(r_shoulder_txt, FONT_SIZE);
     DrawText(r_shoulder_txt,
              SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 - txt_width / 2,
@@ -785,8 +785,7 @@ int main()
         .color   = RED,
     };
 
-    // State state = STATE_INTRO;
-    State state = STATE_MOVEMENT_GAMEPAD;
+    State state = STATE_INTRO;
     bool ready_for_transition = true;
     Score key_mouse_score = {0};
     Score gamepad_score = {0};
@@ -872,7 +871,7 @@ int main()
                             MARGIN / 2 + FONT_SIZE * 1.2, BLACK
                         );
                         render_text_centered(
-                            "left analog translate, right analog for rotation, and left/right trigger to scale",
+                            "left analog translate, right analog for rotation, and left/right shoulder to scale",
                             MARGIN / 2 + FONT_SIZE * 1.2 * 2, BLACK
                         );
                         render_text_centered(

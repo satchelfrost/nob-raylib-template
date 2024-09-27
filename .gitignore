@@ -2,3 +2,6 @@ main
 nob
 nob.old
 build/
+*.js
+*.wasm
+tags
