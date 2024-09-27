@@ -375,7 +375,7 @@ void render_gamepad_calibrate(int progress)
     DrawRectangle(SCREEN_WIDTH / 2  - KEY_WIDTH / 2 - SCREEN_WIDTH / 4,
                   SCREEN_HEIGHT / 5,
                   KEY_WIDTH, KEY_WIDTH / 2, gp.l_shoulder ? GREEN : RED);
-    const char *r_shoulder_txt = "rigth shoulder scale up";
+    const char *r_shoulder_txt = "right shoulder scale up";
     txt_width = MeasureText(r_shoulder_txt, FONT_SIZE);
     DrawText(r_shoulder_txt,
              SCREEN_WIDTH / 4 + SCREEN_WIDTH / 2 - txt_width / 2,
