@@ -319,8 +319,6 @@ int main(int argc, char **argv)
         if (host != HOST_LINUX) {
             nob_log(NOB_ERROR, "target windows expects host linux for now");
             return 1;
-        } else {
-            nob_log(NOB_INFO, "all good son");
         }
         nob_cmd_append(&cmd, "wine", "./main.exe");
         if (!nob_cmd_run_sync(cmd)) return 1;
