@@ -1,12 +1,14 @@
 #include "raylib.h"
 #include <math.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define FACTOR 60
 #define SCREEN_WIDTH  (9 *  FACTOR)
 #define SCREEN_HEIGHT (12 * FACTOR)
 
 #define SPEED 550
+#define LR_SPEED 300
 #define ACCELERATION (SPEED * 3)
 #define DECELERATION (ACCELERATION * 2)
 #define PLAYER_WIDTH 50.0f
@@ -15,19 +17,28 @@
 #define IDLE 0.001f
 
 #define MIN_PLATFORM_WIDTH (PLAYER_WIDTH * 2)
-#define MAX_PLATFORM_WIDTH (SCREEN_WIDTH / 2.0f)
+// #define MAX_PLATFORM_WIDTH (SCREEN_WIDTH / 2.0f)
+#define MAX_PLATFORM_WIDTH (SCREEN_WIDTH / 4.0f)
 #define PLATFORM_THICKNESS 10
-#define NUM_PLATFORMS 7 
+#define NUM_PLATFORMS 5 
 #define PLATFORM_SPACING (SCREEN_HEIGHT / NUM_PLATFORMS)
 
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(*arr))
+
+typedef enum {
+    PLAYER_STATE_CLIMB,
+    PLAYER_STATE_SWING,
+    PLAYER_STATE_FALL,
+    PLAYER_STATE_DEAD,
+} Player_State;
+
 
 typedef struct {
     Vector2 pos;
     Vector2 velocity;
     Vector2 size;
     Color color;
-    bool jumping;
+    Player_State state;
 } Player;
 
 typedef struct {
@@ -45,10 +56,13 @@ int main()
 {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "hello from raylib");
 
+    srand(time(0));
+    Player_State last_state = PLAYER_STATE_DEAD;
     Player player = {
         .pos = {SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT * 7.0f / 8.0f},
         .size = {PLAYER_WIDTH, PLAYER_WIDTH},
         .color = RED,
+        .state = PLAYER_STATE_FALL,
     };
     Platform platforms[NUM_PLATFORMS] = {0};
     for (size_t i = 0; i < NUM_PLATFORMS; i++) {
@@ -75,11 +89,11 @@ int main()
                 else  player.velocity.x += DECELERATION * dt;
             } else if (IsKeyDown(KEY_A)) {
                 float nx = ACCELERATION * dt;
-                if (player.velocity.x - nx < -SPEED) player.velocity.x = -SPEED;
+                if (player.velocity.x - nx < -LR_SPEED) player.velocity.x = -LR_SPEED;
                 else player.velocity.x -= nx;
             } else {
                 float nx = ACCELERATION * dt;
-                if (player.velocity.x + nx > SPEED) player.velocity.x = SPEED;
+                if (player.velocity.x + nx > LR_SPEED) player.velocity.x = LR_SPEED;
                 else player.velocity.x += nx;
             }
 
@@ -89,19 +103,23 @@ int main()
             else  player.velocity.x += DECELERATION * dt;
         }
 
-        if (IsKeyPressed(KEY_W) && !player.jumping) {
+        if (IsKeyPressed(KEY_W) && player.state == PLAYER_STATE_CLIMB) {
             player.velocity.y = -SPEED;
-            player.jumping = true;
+            player.state = PLAYER_STATE_SWING;
+        }
+        if (IsKeyPressed(KEY_S) && player.state == PLAYER_STATE_CLIMB) {
+            player.state = PLAYER_STATE_FALL;
         }
 
         /* up-down translation */
-        player.velocity.y += GRAVITY * dt;
+        if (player.state != PLAYER_STATE_CLIMB)
+            player.velocity.y += GRAVITY * dt;
         float ny = player.pos.y + player.velocity.y * dt;
         if (ny + player.size.y / 2.0f > SCREEN_HEIGHT) {
-            player.jumping = false;
+            player.state = PLAYER_STATE_DEAD;
             player.pos.y = SCREEN_HEIGHT - player.size.y / 2.0f;
             player.velocity.y = 0.0f;
-        } else {
+        } else if (player.state != PLAYER_STATE_CLIMB){
             player.pos.y = ny;
         }
 
@@ -114,7 +132,6 @@ int main()
         if (player.pos.x + player.size.x / 2.0f > SCREEN_WIDTH) {
             player.pos.x = SCREEN_WIDTH - player.size.x / 2.0f;
             player.velocity.x = 0.0f;
-            // player.jumping = false;
         }
 
         /* collision */
@@ -124,6 +141,7 @@ int main()
             .width  = player.size.x,
             .height = player.size.y,
         };
+        bool collided = false;
         for (size_t i = 0; i < NUM_PLATFORMS; i++) {
             Rectangle platform_rect = {
                 .x = platforms[i].pos.x,
@@ -131,31 +149,41 @@ int main()
                 .width = platforms[i].size.x,
                 .height = platforms[i].size.y,
             };
-            if (CheckCollisionRecs(player_rect, platform_rect)) {
+            if (CheckCollisionRecs(player_rect, platform_rect) && player.pos.y <= platforms[i].pos.y) {
+                collided = true;
                 platforms[i].color = PINK;
-                if (player.pos.y < platforms[i].pos.y) {
-                    player.pos.y = platforms[i].pos.y - PLAYER_WIDTH / 2.0f;
+                if (player.state == PLAYER_STATE_FALL) {
+                    player.pos.y = platforms[i].pos.y;
                     player.velocity.y = 0.0f;
-                    player.jumping = false;
-                } else {
-                    player.pos.y = platforms[i].pos.y + PLATFORM_THICKNESS + PLAYER_WIDTH / 2.0f;
-                    player.velocity.y = SPEED / 2;
+                    player.state = PLAYER_STATE_CLIMB;
                 }
             } else {
                 platforms[i].color = BLUE;
             }
         }
 
+        if (!collided && player.state != PLAYER_STATE_DEAD) {
+            player.state = PLAYER_STATE_FALL;
+        }
+
         /* drawing */
         BeginDrawing();
             ClearBackground(RAYWHITE);
             Vector2 draw_pos = {player.pos.x - player.size.x / 2.0f, player.pos.y - player.size.y / 2.0f};
-            DrawRectangleV(draw_pos, player.size, player.color);
-            for (size_t i = 0; i < NUM_PLATFORMS; i++) {
+            for (size_t i = 0; i < NUM_PLATFORMS; i++)
                 DrawRectangleV(platforms[i].pos, platforms[i].size, platforms[i].color);
-            }
+            DrawRectangleV(draw_pos, player.size, player.color);
         EndDrawing();
+
+        /* state tracker */
+        if (player.state != last_state) {
+            TraceLog(LOG_INFO, "%s --> %s",
+                     (const char *[]){"climb", "swing", "fall", "dead"}[last_state],
+                     (const char *[]){"climb", "swing", "fall", "dead"}[player.state]);
+            last_state = player.state;
+        }
     }
+
     CloseWindow();
     return 0;
 }
