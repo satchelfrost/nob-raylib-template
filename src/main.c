@@ -264,6 +264,7 @@ int main()
         case GAME_STATE_OVER:
             if (IsKeyPressed(KEY_SPACE)) {
                 game_state = GAME_STATE_PLAYING;
+                /* reset player */
                 player = (Player) {
                     .pos = {SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT * 7.0f / 8.0f},
                     .size = {PLAYER_WIDTH, PLAYER_WIDTH},
