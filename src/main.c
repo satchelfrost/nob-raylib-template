@@ -14,14 +14,15 @@
 #define PLAYER_WIDTH 50.0f
 #define GRAVITY 1000
 #define EPSILON 0.01f
-#define IDLE 0.001f
+#define IDLE 1.0f
 
 #define MIN_PLATFORM_WIDTH (PLAYER_WIDTH * 2)
-// #define MAX_PLATFORM_WIDTH (SCREEN_WIDTH / 2.0f)
 #define MAX_PLATFORM_WIDTH (SCREEN_WIDTH / 4.0f)
 #define PLATFORM_THICKNESS 10
 #define NUM_PLATFORMS 5 
 #define PLATFORM_SPACING (SCREEN_HEIGHT / NUM_PLATFORMS)
+#define CLIMB_THRESH (PLAYER_WIDTH * 0.1f)
+#define ANIM_ROT_SPEED 1000.0f
 
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(*arr))
 
@@ -32,6 +33,10 @@ typedef enum {
     PLAYER_STATE_DEAD,
 } Player_State;
 
+typedef enum {
+    ANIM_STATE_NONE,
+    ANIM_STATE_ROT,
+} Animation_State;
 
 typedef struct {
     Vector2 pos;
@@ -39,6 +44,9 @@ typedef struct {
     Vector2 size;
     Color color;
     Player_State state;
+
+    Animation_State anim_state;
+    Rectangle anim_rect;
 } Player;
 
 typedef struct {
@@ -84,7 +92,7 @@ int main()
         float dt = GetFrameTime();
         if (IsKeyDown(KEY_A) || IsKeyDown(KEY_D)) {
             if (IsKeyDown(KEY_A) && IsKeyDown(KEY_D)) {
-                if (fabsf(player.velocity.x - IDLE) < EPSILON) player.velocity.x = 0.0f;
+                if (fabsf(player.velocity.x) < IDLE) player.velocity.x = 0.0f;
                 else if (player.velocity.x > 0.0) player.velocity.x -= DECELERATION * dt;
                 else  player.velocity.x += DECELERATION * dt;
             } else if (IsKeyDown(KEY_A)) {
@@ -98,7 +106,7 @@ int main()
             }
 
         } else {
-            if (fabsf(player.velocity.x - IDLE) < EPSILON) player.velocity.x = 0.0f;
+            if (fabsf(player.velocity.x) < IDLE) player.velocity.x = 0.0f;
             else if (player.velocity.x > 0.0) player.velocity.x -= DECELERATION * dt;
             else  player.velocity.x += DECELERATION * dt;
         }
@@ -112,14 +120,16 @@ int main()
         }
 
         /* up-down translation */
-        if (player.state != PLAYER_STATE_CLIMB)
+        if (player.state != PLAYER_STATE_CLIMB) {
             player.velocity.y += GRAVITY * dt;
-        float ny = player.pos.y + player.velocity.y * dt;
-        if (ny + player.size.y / 2.0f > SCREEN_HEIGHT) {
-            player.state = PLAYER_STATE_DEAD;
-            player.pos.y = SCREEN_HEIGHT - player.size.y / 2.0f;
-            player.velocity.y = 0.0f;
-        } else if (player.state != PLAYER_STATE_CLIMB){
+
+            float ny = player.pos.y + player.velocity.y * dt;
+            if (ny + player.size.y / 2.0f > SCREEN_HEIGHT) {
+                player.state = PLAYER_STATE_DEAD;
+                player.pos.y = SCREEN_HEIGHT - player.size.y / 2.0f;
+                player.velocity.y = 0.0f;
+            }
+
             player.pos.y = ny;
         }
 
@@ -141,7 +151,7 @@ int main()
             .width  = player.size.x,
             .height = player.size.y,
         };
-        bool collided = false;
+        bool colliding = false;
         for (size_t i = 0; i < NUM_PLATFORMS; i++) {
             Rectangle platform_rect = {
                 .x = platforms[i].pos.x,
@@ -150,29 +160,51 @@ int main()
                 .height = platforms[i].size.y,
             };
             if (CheckCollisionRecs(player_rect, platform_rect) && player.pos.y <= platforms[i].pos.y) {
-                collided = true;
+                colliding = true;
                 platforms[i].color = PINK;
-                if (player.state == PLAYER_STATE_FALL) {
+                if (player.state == PLAYER_STATE_FALL && platforms[i].pos.y - player.pos.y < CLIMB_THRESH) {
+                // if (player.state == PLAYER_STATE_FALL) {
                     player.pos.y = platforms[i].pos.y;
                     player.velocity.y = 0.0f;
                     player.state = PLAYER_STATE_CLIMB;
+                    player.anim_state = ANIM_STATE_NONE;
+                }
+
+                if (player.state == PLAYER_STATE_SWING) {
+                    platforms[i].color = GREEN;
+                    player.anim_state = ANIM_STATE_ROT;
                 }
             } else {
                 platforms[i].color = BLUE;
             }
         }
 
-        if (!collided && player.state != PLAYER_STATE_DEAD) {
+        if (!colliding && player.state != PLAYER_STATE_DEAD) {
             player.state = PLAYER_STATE_FALL;
         }
+
+        /* update animation */
+        player.anim_rect = (Rectangle) {
+            .x = player.pos.x,
+            .y = player.pos.y,
+            .width = player.size.x,
+            .height = player.size.y,
+        };
 
         /* drawing */
         BeginDrawing();
             ClearBackground(RAYWHITE);
-            Vector2 draw_pos = {player.pos.x - player.size.x / 2.0f, player.pos.y - player.size.y / 2.0f};
             for (size_t i = 0; i < NUM_PLATFORMS; i++)
                 DrawRectangleV(platforms[i].pos, platforms[i].size, platforms[i].color);
+            Vector2 draw_pos = {player.pos.x - player.size.x / 2.0f, player.pos.y - player.size.y / 2.0f};
             DrawRectangleV(draw_pos, player.size, player.color);
+
+            if (player.anim_state == ANIM_STATE_ROT) {
+                float rot_dir = (player.velocity.x >= 0.0f) ? 1.0f: -1.0f;
+                DrawRectanglePro(player.anim_rect,
+                                 (Vector2){player.size.x / 2.0f, player.size.y / 2.0f},
+                                 GetTime() * ANIM_ROT_SPEED * rot_dir, BLUE);
+            }
         EndDrawing();
 
         /* state tracker */

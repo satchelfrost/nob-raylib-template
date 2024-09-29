@@ -206,7 +206,7 @@ bool build_exec_win()
     nob_cmd_append(&cmd, "x86_64-w64-mingw32-gcc");
     nob_cmd_append(&cmd, "-I./src/ext/raylib-5.0/src");
     nob_cmd_append(&cmd, "-o", "main", "src/main.c");
-    nob_cmd_append(&cmd, "-L./build/raylib-windows", "-l:libraylib.dll");
+    nob_cmd_append(&cmd, "-L.", "-l:libraylib.dll");
     nob_cmd_append(&cmd, "-lwinmm", "-lgdi32");
     if (!nob_cmd_run_sync(cmd)) nob_return_defer(false);
 
