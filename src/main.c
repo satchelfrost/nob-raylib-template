@@ -6,9 +6,9 @@
 #include <stdio.h>
 #include <assert.h>
 
-#define FACTOR 100
-#define SCREEN_WIDTH  (16 * FACTOR)
-#define SCREEN_HEIGHT (9  * FACTOR)
+#define FACTOR 50
+#define SCREEN_WIDTH  (10 * FACTOR)
+#define SCREEN_HEIGHT (10  * FACTOR)
 #define TICK_HEIGHT 25
 #define TICK_SPACING 100
 #define ASPECT ((float)SCREEN_WIDTH / SCREEN_HEIGHT)
@@ -72,7 +72,7 @@ void calc_sin_graph(float start, float step, Vector2 *graph, size_t data_count)
     size_t data_idx = 0;
     for (float x = start; data_idx < data_count; x += step, data_idx++) {
         graph[data_idx].x = x;
-        graph[data_idx].y = 3 * sinf(x * 1);
+        graph[data_idx].y = sinf(x);
     }
 }
 
@@ -111,10 +111,10 @@ int main()
     //     0.1,
     // };
     float coeffs[] = {
+        0.0,
         1.0,
-        0.0,
-        0.0,
-        0.0,
+        -1.0,
+        0.1,
     };
 
     size_t num_coeffs = ARRAY_LEN(coeffs);
@@ -154,7 +154,6 @@ int main()
     float rate = 1e-3;
 
     while(!WindowShouldClose()) {
-        // if (IsKeyPressed(KEY_SPACE)) {
         if (IsKeyDown(KEY_SPACE) || IsKeyPressed(KEY_S)) {
             float c = cost(graph, DATA_COUNT, guess_coeffs, num_coeffs);
             for (size_t i = 0; i < num_coeffs; i++) {
@@ -169,6 +168,20 @@ int main()
             }
             calc_graph(start, step, guess_graph, DATA_COUNT, guess_coeffs, num_coeffs);
             printf("cost %f\n", c);
+            printf("guess coefficients\n");
+            printf("------------\n");
+            for (size_t i = 0; i < num_coeffs; i++) {
+                printf("a%zu = %f\n", i, guess_coeffs[i]);
+            }
+            printf("\n");
+        }
+
+        if (IsKeyPressed(KEY_R)) {
+            for (size_t i = 1; i < num_coeffs; i++) {
+                float random = ((float)rand() / RAND_MAX)*2.0f - 1.0;
+                guess_coeffs[i] = random;
+            }
+            calc_graph(start, step, guess_graph, DATA_COUNT, guess_coeffs, num_coeffs);
             printf("guess coefficients\n");
             printf("------------\n");
             for (size_t i = 0; i < num_coeffs; i++) {
