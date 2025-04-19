@@ -13,6 +13,7 @@
 #define INSTR_PADDING 15.0f
 #define BEAVER_HEIGHT 10.0f
 #define FONT_SIZE 50
+// #define SHOW_CONTROLS
 
 typedef struct {
     Vector2 pos;
@@ -224,32 +225,32 @@ typedef struct {
 
 int main()
 {
-    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "hello from raylib");
+    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Hello COT6410");
 
     /* Different halting busy beavers */
     BB bbs[4] = {
         {
             .box_count = 5,
             .idx = 2,
-            .file = "bb1-card.png",
+            .file = "res/bb1-card.png",
             .bi_instructions = bb_1_instructions
         },
         {
             .box_count = 8,
             .idx = 4,
-            .file = "bb2-card.png",
+            .file = "res/bb2-card.png",
             .bi_instructions = bb_2_instructions
         },
         {
             .box_count = 10,
             .idx = 3,
-            .file = "bb3-card.png",
+            .file = "res/bb3-card.png",
             .bi_instructions = bb_3_instructions
         },
         {
             .box_count = 18,
             .idx = 12,
-            .file = "bb4-card.png",
+            .file = "res/bb4-card.png",
             .bi_instructions = bb_4_instructions
         },
     };
@@ -315,6 +316,21 @@ int main()
             const char *text = TextFormat("State: %s", state_to_str(state, false));
             float state_width = MeasureText(text, FONT_SIZE);
             DrawText(text, WINDOW_WIDTH / 2.0f - state_width / 2.0f, BORDER_PADDING, FONT_SIZE, BLACK);
+
+#ifdef SHOW_CONTROLS
+            const char *instrs = "SPACE - Move Beaver";
+            float instr_width = MeasureText(instrs, FONT_SIZE / 2.0f);
+            float offset = BORDER_PADDING + FONT_SIZE;
+            DrawText(instrs, WINDOW_WIDTH / 2.0f - instr_width / 2.0f, offset, FONT_SIZE / 2.0f, BLACK);
+            instrs = "S - Switch Instructions";
+            instr_width = MeasureText(instrs, FONT_SIZE / 2.0f);
+            offset += FONT_SIZE / 2.0f;
+            DrawText(instrs, WINDOW_WIDTH / 2.0f - instr_width / 2.0f, offset, FONT_SIZE / 2.0f, BLACK);
+            instrs = "R - Reset";
+            offset += FONT_SIZE / 2.0f;
+            instr_width = MeasureText(instrs, FONT_SIZE / 2.0f);
+            DrawText(instrs, WINDOW_WIDTH / 2.0f - instr_width / 2.0f, offset, FONT_SIZE / 2.0f, BLACK);
+#endif
 
             /* draw instructions */
             Vector2 texture_pos = {

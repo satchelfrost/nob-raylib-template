@@ -191,6 +191,7 @@ bool build_exec_web()
     nob_cmd_append(&cmd, "-L./build/raylib-web", "-l:libraylib.a");
     nob_cmd_append(&cmd, "-s", "USE_GLFW=3");
     nob_cmd_append(&cmd, "-s", "ASYNCIFY");
+    nob_cmd_append(&cmd, "--preload-file", "res");
     if(!nob_cmd_run_sync(cmd)) nob_return_defer(false);
 
 defer:
