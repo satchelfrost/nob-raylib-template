@@ -5,6 +5,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <assert.h>
+#include <string.h>
 
 #define FACTOR 50
 #define SCREEN_WIDTH  (10 * FACTOR)
@@ -76,15 +77,26 @@ void calc_sin_graph(float start, float step, Vector2 *graph, size_t data_count)
     }
 }
 
-float cost(Vector2 *data_set, size_t data_count, float *gradients, size_t gradient_count)
+float cost(Vector2 *data_set, size_t data_count, float *coeffs, size_t coeff_count)
 {
     float result = 0.0;
     for (size_t i = 0; i < data_count; i++) {
-        float y = calc_taylor(data_set[i].x, gradients, gradient_count);
+        float y = calc_taylor(data_set[i].x, coeffs, coeff_count);
         float d = y - data_set[i].y;
         result += d * d;
     }
     return result / data_count;
+}
+
+void print_results(float *guess_coeffs, size_t num_coeffs, float cost)
+{
+    printf("cost %f\n", cost);
+    printf("guess coefficients\n");
+    printf("------------\n");
+    for (size_t i = 0; i < num_coeffs; i++) {
+        printf("a%zu = %f\n", i, guess_coeffs[i]);
+    }
+    printf("\n");
 }
 
 
@@ -126,15 +138,13 @@ int main()
         float random = ((float)rand() / RAND_MAX)*2.0f - 1.0;
         guess_coeffs[i] = random;
     }
-    float gradients[MAX_COEFFICIENTS];
 
-    printf("coefficients\n");
+    printf("ground truth coefficients\n");
     printf("------------\n");
     for (size_t i = 0; i < num_coeffs; i++) {
         printf("a%zu = %f\n", i, coeffs[i]);
     }
     printf("\n");
-
     printf("guess coefficients\n");
     printf("------------\n");
     for (size_t i = 0; i < num_coeffs; i++) {
@@ -146,34 +156,66 @@ int main()
     float step = 0.1;
     float start = -2.0;
     calc_graph(start, step, graph, DATA_COUNT, coeffs, num_coeffs);
-    // calc_sin_graph(start, step, graph, DATA_COUNT);
     Vector2 *guess_graph = malloc(DATA_COUNT * sizeof(Vector2));
     calc_graph(start, step, guess_graph, DATA_COUNT, guess_coeffs, num_coeffs);
-
     float eps  = 1e-6;
     float rate = 1e-3;
+    size_t data_point_idx = 0;
 
     while(!WindowShouldClose()) {
-        if (IsKeyDown(KEY_SPACE) || IsKeyPressed(KEY_S)) {
+        if (IsKeyPressed(KEY_P)) {
             float c = cost(graph, DATA_COUNT, guess_coeffs, num_coeffs);
+            print_results(guess_coeffs, num_coeffs, c);
+        }
+
+        if (IsKeyDown(KEY_SPACE) || IsKeyPressed(KEY_S)) { // full batch gradient descent
+            float c = cost(graph, DATA_COUNT, guess_coeffs, num_coeffs);
+            float tmp_coeffs[num_coeffs];
+            float adj_coeffs[num_coeffs];
             for (size_t i = 0; i < num_coeffs; i++) {
-                float saved = guess_coeffs[i];
-                guess_coeffs[i] += eps;
-                float g = (cost(graph, DATA_COUNT, guess_coeffs, num_coeffs) - c) / eps;
-                gradients[i] = guess_coeffs[i] - rate * g;
-                guess_coeffs[i] = saved;
+                memcpy(tmp_coeffs, guess_coeffs, num_coeffs * sizeof(float));
+                tmp_coeffs[i] += eps;
+                float g = (cost(graph, DATA_COUNT, tmp_coeffs, num_coeffs) - c) / eps;
+                adj_coeffs[i] = guess_coeffs[i] - rate * g;
             }
             for (size_t i = 0; i < num_coeffs; i++) {
-                guess_coeffs[i] = gradients[i];
+                guess_coeffs[i] = adj_coeffs[i];
             }
             calc_graph(start, step, guess_graph, DATA_COUNT, guess_coeffs, num_coeffs);
-            printf("cost %f\n", c);
-            printf("guess coefficients\n");
-            printf("------------\n");
+        }
+
+        if (IsKeyDown(KEY_G)) { // stochastic gradient descent
+            float c = cost(graph + data_point_idx, 1, guess_coeffs, num_coeffs);
+            float tmp_coeffs[num_coeffs];
+            float adj_coeffs[num_coeffs];
             for (size_t i = 0; i < num_coeffs; i++) {
-                printf("a%zu = %f\n", i, guess_coeffs[i]);
+                memcpy(tmp_coeffs, guess_coeffs, num_coeffs * sizeof(float));
+                tmp_coeffs[i] += eps;
+                float g = (cost(graph + data_point_idx, 1, tmp_coeffs, num_coeffs) - c) / eps;
+                adj_coeffs[i] = guess_coeffs[i] - rate * g;
             }
-            printf("\n");
+            for (size_t i = 0; i < num_coeffs; i++) {
+                guess_coeffs[i] = adj_coeffs[i];
+            }
+            data_point_idx = (data_point_idx + 1) % DATA_COUNT;
+            calc_graph(start, step, guess_graph, DATA_COUNT, guess_coeffs, num_coeffs);
+        }
+
+        if (IsKeyDown(KEY_I)) { // stochastic gradient descent over whole dataset
+            float tmp_coeffs[num_coeffs];
+            float adj_coeffs[num_coeffs];
+            for (size_t i = 0; i < DATA_COUNT; i++) {
+                float c = cost(graph + i, 1, guess_coeffs, num_coeffs);
+                for (size_t j = 0; j < num_coeffs; j++) {
+                    memcpy(tmp_coeffs, guess_coeffs, num_coeffs * sizeof(float));
+                    tmp_coeffs[j] += eps;
+                    float g = (cost(graph + i, 1, tmp_coeffs, num_coeffs) - c) / eps;
+                    adj_coeffs[j] = guess_coeffs[j] - rate * g;
+                }
+                for (size_t j = 0; j < num_coeffs; j++)
+                    guess_coeffs[j] = adj_coeffs[j];
+                calc_graph(start, step, guess_graph, DATA_COUNT, guess_coeffs, num_coeffs);
+            }
         }
 
         if (IsKeyPressed(KEY_R)) {
@@ -182,12 +224,6 @@ int main()
                 guess_coeffs[i] = random;
             }
             calc_graph(start, step, guess_graph, DATA_COUNT, guess_coeffs, num_coeffs);
-            printf("guess coefficients\n");
-            printf("------------\n");
-            for (size_t i = 0; i < num_coeffs; i++) {
-                printf("a%zu = %f\n", i, guess_coeffs[i]);
-            }
-            printf("\n");
         }
 
         float zoom = 2.0f;
