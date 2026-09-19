@@ -58,16 +58,16 @@ typedef enum {
 } New_Shape_Substate;
 
 typedef enum {
-    BUTTON_SELECT,
-    BUTTON_NEW_SHAPE,
-    BUTTON_PALETTE,
+    BUTTON_DELETE,
+    BUTTON_NEW,
+    BUTTON_SAVE,
     BUTTON_COUNT,
 } Button;
 
 static struct {
     Shapes shapes;
     Shape_Type preview_shape;
-    Color preivew_color;
+    Color preview_color;
     Edit_Mode mode;
     New_Shape_Substate new_shape_substate;
     Vector2 line_start;      // initial mouse click
@@ -79,22 +79,91 @@ static struct {
     struct {
         Color color;
         int width, height;
-        int btn_height;
+
+        struct {
+            int length;
+            int padding;
+            Rectangle delete;
+            Rectangle new;
+            Rectangle save;
+            Rectangle load;
+        } button;
+
+        struct {
+            Vector2 center;
+            float radius;
+            float value; // V in HSV
+        } color_wheel;
+
     } panel;
 } app = {0};
 
 void configure_ui()
 {
     app.panel.color      = GRAY;
-    app.panel.width      = 100;
+    app.panel.width      = 125;
     app.panel.height     = GetScreenHeight();
-    app.panel.btn_height = 100;
+    app.panel.button.length = app.panel.width*0.9;
+    app.panel.button.padding = app.panel.width*0.05;
+    app.panel.color_wheel.value  = 1.0;
+    app.panel.color_wheel.radius = 55.0f;
+    app.panel.color_wheel.center = (Vector2){app.panel.width/2.0f, app.panel.width/2.0f};
+    app.panel.button.delete = (Rectangle){.x = app.panel.button.padding,
+                                          .y = app.panel.height - app.panel.button.length - app.panel.button.padding,
+                                          .width = app.panel.button.length,
+                                          .height = app.panel.button.length};
+    app.panel.button.save = app.panel.button.delete;
+    app.panel.button.save.y -= app.panel.button.length + app.panel.button.padding;
+    app.panel.button.new = app.panel.button.save;
+    app.panel.button.new.y -= app.panel.button.length + app.panel.button.padding;
+    // app.panel.new;
     app.translate_widget_texture = LoadTexture("assets/translate_32x32.png");
+    app.preview_color = BLUE; // default preview color
 }
 
 void draw_side_panel()
 {
     DrawRectangle(0, 0, app.panel.width, app.panel.height, app.panel.color);
+
+    unsigned int tri_count = 64;
+    float radius   = app.panel.color_wheel.radius;
+    Vector2 center = app.panel.color_wheel.center;
+    float value    = app.panel.color_wheel.value;
+
+    // Begin rendering color wheel
+    rlBegin(RL_TRIANGLES); {
+        for (unsigned int i = 0; i < tri_count; i++) {
+            float angle_offset = ((PI*2.0f)/(float)tri_count);
+            float angle = angle_offset*(float)i;
+            float angle_offset_calculated = ((float)i + 1)*angle_offset;
+            Vector2 scale = (Vector2){ radius, radius };
+
+            Vector2 offset = Vector2Multiply((Vector2){ sinf(angle), -cosf(angle) }, scale);
+            Vector2 offset2 = Vector2Multiply((Vector2){ sinf(angle_offset_calculated), -cosf(angle_offset_calculated) }, scale);
+
+            Vector2 position = Vector2Add(center, offset);
+            Vector2 position2 = Vector2Add(center, offset2);
+
+            float angle_non_radian = (angle/(2.0f*PI))*360.0f;
+            float angle_non_radian_offset = (angle_offset/(2.0f*PI))*360.0f;
+
+            Color currentColor = ColorFromHSV(angle_non_radian, 1.0f, 1.0f);
+            Color offsetColor = ColorFromHSV(angle_non_radian + angle_non_radian_offset, 1.0f, 1.0f);
+
+            rlColor4ub(currentColor.r, currentColor.g, currentColor.b, currentColor.a);
+            rlVertex2f(position.x, position.y);
+            rlColor4f(value, value, value, 1.0f);
+            rlVertex2f(center.x, center.y);
+            rlColor4ub(offsetColor.r, offsetColor.g, offsetColor.b, offsetColor.a);
+            rlVertex2f(position2.x, position2.y);
+        }
+    } rlEnd();
+
+    DrawCircleLinesV(center, radius, BLACK);
+
+    DrawRectangleRec(app.panel.button.delete, RED);
+    DrawRectangleRec(app.panel.button.save, GREEN);
+    DrawRectangleRec(app.panel.button.new, YELLOW);
 }
 
 Shape create_shape(Shape_Type type)
@@ -103,7 +172,7 @@ Shape create_shape(Shape_Type type)
     float radius = Vector2Length(Vector2Subtract(mouse_pos, app.line_start));
     Shape shape = {
         .type = type,
-        .color = PURPLE,
+        .color = app.preview_color,
         .rect = {
             .x = app.line_start.x,
             .y = app.line_start.y,
@@ -251,8 +320,8 @@ void draw_shape_preview()
 {
     if (app.mode != EDIT_MODE_NEW_SHAPE) return;
 
-    Color preview_color = BLUE;
-    preview_color.a = 200;
+    Color preview_color = app.preview_color;
+    preview_color.a = 200; // give preview shape some transparency
     Vector2 mouse_pos = GetMousePosition();
 
     if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_1) {
@@ -302,30 +371,65 @@ void draw_shape_preview()
     }
 }
 
+// returns the current preview color if not hovered over color wheel
+Color get_hovered_color_wheel_color()
+{
+    Vector2 mouse_pos = GetMousePosition();
+    Color color = app.preview_color;
+    float radius   = app.panel.color_wheel.radius;
+    Vector2 center = app.panel.color_wheel.center;
+    float value    = app.panel.color_wheel.value;
+
+    if (CheckCollisionPointCircle(mouse_pos, center, radius)) {
+        Vector2 a = Vector2Subtract(mouse_pos, center);
+        float sat = Vector2Length(a)/radius;
+        a         = Vector2Normalize(a);
+        Vector2 b = {1.0f, 0.0f};
+        float dot = Vector2DotProduct(a, b);
+        float hue = 0;
+        if (dot >= 0) {
+            if (mouse_pos.y <= center.y)
+                hue = dot*90;
+            else
+                hue = (1.0 - dot)*90 + 90;
+        } else {
+            dot *= -1.0;
+            if (mouse_pos.y <= center.y)
+                hue = 270 + 90*(1.0 - dot);
+            else
+                hue = 180 + 90*dot;
+        }
+        color = ColorFromHSV(hue, sat, value);
+    }
+
+    return color;
+}
+
 void draw_shape_preview_icon()
 {
     Vector2 mouse_pos = GetMousePosition();
-    Vector2 shape_icon = {mouse_pos.x + 25, mouse_pos.y - 25};
+    Vector2 shape_icon = {mouse_pos.x + 25, mouse_pos.y - 10};
     Vector2 t0 = Vector2Add(shape_icon, (Vector2){0, 25});
     Vector2 t1 = Vector2Add(t0, (Vector2){30, 0});
     Vector2 t2 = Vector2Add(t0, (Vector2){15, -25});
+    Color preview_color = get_hovered_color_wheel_color();
 
     if (app.mode == EDIT_MODE_NEW_SHAPE && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
         switch (app.preview_shape) {
         case SHAPE_SQUARE:
-            DrawRectangle(shape_icon.x, shape_icon.y, 25, 25, BLUE);
+            DrawRectangle(shape_icon.x, shape_icon.y, 25, 25, preview_color);
         break;
         case SHAPE_RECTANGLE:
-            DrawRectangle(shape_icon.x, shape_icon.y, 50, 25, BLUE);
+            DrawRectangle(shape_icon.x, shape_icon.y, 50, 25, preview_color);
         break;
         case SHAPE_CIRCLE:
-            DrawCircle(shape_icon.x + 13, shape_icon.y + 13, 13, BLUE);
+            DrawCircle(shape_icon.x + 13, shape_icon.y + 13, 13, preview_color);
         break;
         case SHAPE_ELLIPSE:
-            DrawEllipse(shape_icon.x + 26, shape_icon.y + 13, 26, 13, BLUE);
+            DrawEllipse(shape_icon.x + 26, shape_icon.y + 13, 26, 13, preview_color);
         break;
         case SHAPE_TRIANGLE:
-            DrawTriangle(t0, t1, t2, BLUE);
+            DrawTriangle(t0, t1, t2, preview_color);
         break;
         default:
         }
@@ -335,20 +439,20 @@ void draw_shape_preview_icon()
 bool is_button_clicked(Button btn)
 {
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return false;
-
     Vector2 point = GetMousePosition();
-    Rectangle rect = {
-        .x = 0,
-        .y = btn*app.panel.btn_height,
-        .width = app.panel.width,
-        .height = app.panel.btn_height,
-    };
 
-    return CheckCollisionPointRec(point, rect);
+    switch (btn) {
+    case BUTTON_DELETE:
+        return CheckCollisionPointRec(point, app.panel.button.delete);
+    case BUTTON_NEW:
+        return CheckCollisionPointRec(point, app.panel.button.new);
+    case BUTTON_SAVE:
+        return CheckCollisionPointRec(point, app.panel.button.save);
+    default: UNREACHABLE("is button clicked");
+    }
 }
 
 typedef struct {
-    bool valid; // not valid if no highlighted shape found
     struct {
         Rectangle     top_left_bounding_box;
         Rectangle    top_right_bounding_box;
@@ -362,15 +466,19 @@ Edit_Widget_Info get_highlighted_shape_edit_widget_info()
 {
     Edit_Widget_Info widget_info = {0};
     Shape shape = {0};
+    bool found_highlighted = false;
     for (size_t i = 0; i < app.shapes.count; i++) {
         shape = app.shapes.items[i];
         if (shape.highlighted) {
-            widget_info.valid = true;
+            found_highlighted = true;
             break;
         }
     }
 
-    if (!widget_info.valid) return widget_info;
+    if (!found_highlighted) {
+        printf("WARNING: failed to find highlighted shape necessary for widget info\n");
+        return widget_info;
+    }
 
     // calculate bounding boxes for edit widget info
     int side = MIN_WIDTH;
@@ -391,6 +499,7 @@ Edit_Widget_Info get_highlighted_shape_edit_widget_info()
 void draw_highlighted_shape_edit_widgets()
 {
     Edit_Widget_Info widget_info = get_highlighted_shape_edit_widget_info();
+
     Rectangle t = widget_info.translate_bounding_box;
     DrawTexture(app.translate_widget_texture, t.x, t.y, WHITE);
     DrawRectangleRec(widget_info.scale.top_left_bounding_box,     BLACK);
@@ -424,7 +533,7 @@ int main()
     const int width  = 800;
     const int height = 600;
     SetTraceLogLevel(LOG_ERROR);
-    InitWindow(width, height, "2D Shape Drawing App");
+    InitWindow(width, height, "Minimal Shapes");
     configure_ui();
 
     struct {
@@ -443,21 +552,61 @@ int main()
         if (IsKeyPressed(KEY_V) && IsKeyDown(KEY_LEFT_CONTROL)) {
             printf("PASTE!\n");
         }
-        if (IsKeyPressed(KEY_DELETE)) {
-            printf("DELETE!\n");
+        if (IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_BACKSPACE) || is_button_clicked(BUTTON_DELETE)) {
+            for (size_t i = 0; i < app.shapes.count; i++) {
+                if (app.shapes.items[i].highlighted) {
+                    da_remove_unordered(&app.shapes, i);
+                    app.mode = EDIT_MODE_NEW_SHAPE;
+                    app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+                    break;
+                }
+            }
         }
+        if (is_button_clicked(BUTTON_NEW)) {
+            app.mode = EDIT_MODE_NEW_SHAPE;
+            app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+            app.shapes.count = 0;
+        }
+        if (is_button_clicked(BUTTON_SAVE) || (IsKeyPressed(KEY_S) && IsKeyDown(KEY_LEFT_CONTROL))) {
+            printf("save\n");
+        }
+
+        Vector2 mouse_pos = GetMousePosition();
+        bool on_canvas = mouse_pos.x > app.panel.width;
 
         float wheel = GetMouseWheelMove();
         if (wheel != 0.0  && app.mode == EDIT_MODE_NEW_SHAPE &&
             app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
-            if (wheel < 0) app.preview_shape = (app.preview_shape + SHAPE_COUNT - 1)%SHAPE_COUNT;
-            else           app.preview_shape = (app.preview_shape + 1)%SHAPE_COUNT;
+
+            // if on canvs change preview shape, otherwise change the V in HSV
+            if (on_canvas) {
+                if (wheel < 0) app.preview_shape = (app.preview_shape + SHAPE_COUNT - 1)%SHAPE_COUNT;
+                else           app.preview_shape = (app.preview_shape + 1)%SHAPE_COUNT;
+            } else {
+                if (wheel < 0) {
+                    float nv = app.panel.color_wheel.value - 0.1;
+                    app.panel.color_wheel.value = (nv < 0.0f) ? 0.0f : nv;
+                } else {
+                    float nv = app.panel.color_wheel.value + 0.1;
+                    app.panel.color_wheel.value = (nv > 1.0f) ? 1.0f : nv;
+                }
+            }
         }
 
-        Vector2 mouse_pos = GetMousePosition();
+        /* handle color select */
+        if (!on_canvas && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            app.mode = EDIT_MODE_NEW_SHAPE;
+            app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+            app.preview_color = get_hovered_color_wheel_color();
+            for (size_t i = 0; i < clicked_shapes.count; i++) {
+                clicked_shapes.items[i]->highlighted = false;
+                clicked_shapes.items[i]->clicked = false;
+            }
+            clicked_shapes.count = 0;
+        }
 
         /* handle select mode */
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
+        if (on_canvas && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
             clicked_shapes.count = 0;
             for (size_t i = app.shapes.count; i > 0; i--) {
                 Shape *shape = &app.shapes.items[i-1];
@@ -465,7 +614,6 @@ int main()
                     da_append(&clicked_shapes, shape);
                 } else {
                     shape->highlighted = false;
-                    // shape->selected = false;
                 }
             }
             Edit_Mode prev_mode = app.mode;
@@ -490,6 +638,7 @@ int main()
             app.highlighted_shape_index = 0;
         }
 
+        // if there are multiple clicked shapes use scroll wheel to switch movable shape (i.e. highlighted)
         if (wheel != 0.0  && app.mode == EDIT_MODE_SELECT) {
             if (clicked_shapes.count) {
                 size_t count = clicked_shapes.count;
@@ -502,7 +651,8 @@ int main()
             }
         }
 
-        if (app.mode == EDIT_MODE_SELECT && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        /* handle resizing and translation */
+        if (app.mode == EDIT_MODE_SELECT && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && on_canvas) {
             for (size_t i = 0; i < app.shapes.count; i++) {
                 Shape *shape = &app.shapes.items[i];
                 if (shape->highlighted) {
@@ -591,7 +741,7 @@ int main()
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
         }
 
-        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !app.skip_preview) {
+        if (on_canvas && app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !app.skip_preview) {
             if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
                 app.line_start = mouse_pos;
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_LINE_1;
@@ -608,10 +758,6 @@ int main()
             }
         }
 
-        if (is_button_clicked(BUTTON_SELECT))
-            printf("select button\n");
-
-
         BeginDrawing(); {
             ClearBackground(WHITE);
             rlDisableBackfaceCulling();
@@ -621,12 +767,13 @@ int main()
             if (app.mode == EDIT_MODE_SELECT)
                 draw_highlighted_shape_edit_widgets();
 
+            draw_side_panel();
+
             if (app.mode == EDIT_MODE_NEW_SHAPE && !app.skip_preview) {
                 draw_shape_preview();
                 draw_shape_preview_icon();
             }
 
-            draw_side_panel();
         } EndDrawing();
 
         app.skip_preview = false;
