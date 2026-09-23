@@ -11,7 +11,7 @@
 typedef enum {
     SHAPE_SQUARE,
     SHAPE_RECTANGLE,
-    SHAPE_CIRLCE,
+    SHAPE_CIRCLE,
     SHAPE_ELLIPSE,
     SHAPE_TRIANGLE,
     SHAPE_COUNT,
@@ -109,7 +109,7 @@ Shape create_shape(Shape_Type type)
         shape.rect = rect;
         shape.bounds = rect;
     } break;
-    case SHAPE_CIRLCE: {
+    case SHAPE_CIRCLE: {
         shape.radius0 = radius;
         shape.position = app.line_start;
         shape.bounds = (Rectangle) {
@@ -151,6 +151,8 @@ Shape create_shape(Shape_Type type)
     return shape;
 }
 
+// #define DEBUG_BOUNDING_BOX
+
 void draw_shapes()
 {
     for (size_t i = 0; i < app.shapes.count; i++) {
@@ -158,41 +160,58 @@ void draw_shapes()
         switch (shape.type) {
         case SHAPE_SQUARE:
             DrawRectangleRec(shape.rect, shape.color);
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
         break;
         case SHAPE_RECTANGLE:
             DrawRectangleRec(shape.rect, shape.color);
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
         break;
-        case SHAPE_CIRLCE:
+        case SHAPE_CIRCLE:
             DrawCircle(shape.position.x, shape.position.y, shape.radius0, shape.color);
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
         break;
         case SHAPE_ELLIPSE:
             DrawEllipse(shape.position.x, shape.position.y, shape.radius0, shape.radius1, shape.color);
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
         break;
         case SHAPE_TRIANGLE:
             DrawTriangle(shape.p0, shape.p1, shape.p2, shape.color);
+        break;
+        default:
+        }
+    }
+
+#ifdef DEBUG_BOUNDING_BOX
+    for (size_t i = 0; i < app.shapes.count; i++) {
+        Shape shape = app.shapes.items[i];
+        switch (shape.type) {
+        case SHAPE_SQUARE:
+            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
+        break;
+        case SHAPE_RECTANGLE:
+            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
+        break;
+        case SHAPE_CIRCLE:
+            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
+        break;
+        case SHAPE_ELLIPSE:
+            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
+        break;
+        case SHAPE_TRIANGLE:
             DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
         break;
         default:
         }
     }
+#endif // DEBUG_BOUNDING_BOX
 }
 
 void draw_shape_preview()
 {
+    if (app.mode != EDIT_MODE_NEW_SHAPE) return;
+
     Color preview_color = BLUE;
     preview_color.a = 200;
-    Color vert_color = RED;
-    vert_color.a = 200;
     Vector2 mouse_pos = GetMousePosition();
 
-    if (app.mode == EDIT_MODE_NEW_SHAPE && app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_1) {
-        if (app.preview_shape != SHAPE_ELLIPSE) DrawLineV(app.line_start, mouse_pos, BLACK);
-        DrawCircleV(app.line_start, 5, vert_color);
-        DrawCircleV(mouse_pos, 5, vert_color);
+    if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_1) {
+        if (app.preview_shape == SHAPE_TRIANGLE) DrawLineV(app.line_start, mouse_pos, BLACK);
 
         float radius = Vector2Length(Vector2Subtract(mouse_pos, app.line_start));
         Rectangle rect = {
@@ -216,28 +235,22 @@ void draw_shape_preview()
         case SHAPE_RECTANGLE:
             DrawRectangleRec(rect, preview_color);
         break;
-        case SHAPE_CIRLCE:
+        case SHAPE_CIRCLE:
             DrawCircle(app.line_start.x, app.line_start.y, radius, preview_color);
         break;
         case SHAPE_ELLIPSE:
             DrawEllipse(app.line_start.x, app.line_start.y, rect.width, rect.height, preview_color);
-            DrawRectangleLines(rect.x, rect.y, rect.width, rect.height, BLACK);
         break;
         case SHAPE_TRIANGLE:
             app.tri_second_vert = mouse_pos;
         break;
         default:
         }
-    }
-
-    if (app.mode == EDIT_MODE_NEW_SHAPE && app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_2) {
+    } else if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_2) {
         DrawTriangle(app.line_start, app.tri_second_vert, mouse_pos, preview_color);
         DrawLineV(app.line_start, mouse_pos, BLACK);
         DrawLineV(app.line_start, app.tri_second_vert, BLACK);
         DrawLineV(app.tri_second_vert, mouse_pos, BLACK);
-        DrawCircleV(app.line_start, 5, vert_color);
-        DrawCircleV(app.tri_second_vert, 5, vert_color);
-        DrawCircleV(mouse_pos, 5, vert_color);
     }
 }
 
@@ -257,7 +270,7 @@ void draw_shape_preview_icon()
         case SHAPE_RECTANGLE:
             DrawRectangle(shape_icon.x, shape_icon.y, 50, 25, BLUE);
         break;
-        case SHAPE_CIRLCE:
+        case SHAPE_CIRCLE:
             DrawCircle(shape_icon.x + 13, shape_icon.y + 13, 13, BLUE);
         break;
         case SHAPE_ELLIPSE:
