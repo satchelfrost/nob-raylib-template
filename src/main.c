@@ -5,6 +5,8 @@
 
 #include "../nob.h"
 
+// #define DEBUG_BOUNDING_BOX
+
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 #define MAX(a, b) (a) > (b) ? (a) : (b)
 
@@ -26,6 +28,8 @@ typedef struct {
     Rectangle bounds;
     Color color;
     Vector2 p0, p1, p2;
+    bool clicked;
+    bool selected;
 } Shape;
 
 typedef struct {
@@ -36,7 +40,7 @@ typedef struct {
 
 typedef enum {
     EDIT_MODE_NEW_SHAPE,
-    EDIT_MODE_SELECTED,
+    EDIT_MODE_SELECT,
     EDIT_MODE_COUNT,
 } Edit_Mode;
 
@@ -61,6 +65,9 @@ static struct {
     New_Shape_Substate new_shape_substate;
     Vector2 line_start;      // initial mouse click
     Vector2 tri_second_vert; // secondary mouse click (specificallly only for triangles)
+    size_t selected_shape_index;
+    Texture translate_widget_texture;
+    bool skip_preview;
 
     struct {
         Color color;
@@ -75,6 +82,7 @@ void configure_ui()
     app.panel.width      = 100;
     app.panel.height     = GetScreenHeight();
     app.panel.btn_height = 100;
+    app.translate_widget_texture = LoadTexture("assets/translate_32x32.png");
 }
 
 void draw_side_panel()
@@ -108,6 +116,14 @@ Shape create_shape(Shape_Type type)
     case SHAPE_RECTANGLE: {
         shape.rect = rect;
         shape.bounds = rect;
+        if (shape.bounds.width < 0) {
+            shape.bounds.x += shape.bounds.width;
+            shape.bounds.width *= -1.0;
+        }
+        if (shape.bounds.height < 0) {
+            shape.bounds.y += shape.bounds.height;
+            shape.bounds.height *= -1.0;
+        }
     } break;
     case SHAPE_CIRCLE: {
         shape.radius0 = radius;
@@ -129,6 +145,14 @@ Shape create_shape(Shape_Type type)
             .width  = 2*rect.width,
             .height = 2*rect.height,
         };
+        if (shape.bounds.width < 0) {
+            shape.bounds.x += shape.bounds.width;
+            shape.bounds.width *= -1.0;
+        }
+        if (shape.bounds.height < 0) {
+            shape.bounds.y += shape.bounds.height;
+            shape.bounds.height *= -1.0;
+        }
     } break;
     case SHAPE_TRIANGLE: {
         shape.p0 = app.line_start;
@@ -150,8 +174,6 @@ Shape create_shape(Shape_Type type)
 
     return shape;
 }
-
-// #define DEBUG_BOUNDING_BOX
 
 void draw_shapes()
 {
@@ -177,27 +199,18 @@ void draw_shapes()
         }
     }
 
+    for (size_t i = 0; i < app.shapes.count; i++) {
+        Shape shape = app.shapes.items[i];
+        if (shape.clicked) {
+            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height,
+                               shape.selected ? YELLOW : BLACK);
+        }
+    }
+
 #ifdef DEBUG_BOUNDING_BOX
     for (size_t i = 0; i < app.shapes.count; i++) {
         Shape shape = app.shapes.items[i];
-        switch (shape.type) {
-        case SHAPE_SQUARE:
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
-        break;
-        case SHAPE_RECTANGLE:
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
-        break;
-        case SHAPE_CIRCLE:
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
-        break;
-        case SHAPE_ELLIPSE:
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
-        break;
-        case SHAPE_TRIANGLE:
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
-        break;
-        default:
-        }
+        DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
     }
 #endif // DEBUG_BOUNDING_BOX
 }
@@ -212,6 +225,8 @@ void draw_shape_preview()
 
     if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_1) {
         if (app.preview_shape == SHAPE_TRIANGLE) DrawLineV(app.line_start, mouse_pos, BLACK);
+
+        DrawCircleV(app.line_start, 5, RED);
 
         float radius = Vector2Length(Vector2Subtract(mouse_pos, app.line_start));
         Rectangle rect = {
@@ -230,7 +245,6 @@ void draw_shape_preview()
         switch (app.preview_shape) {
         case SHAPE_SQUARE:
             DrawRectangleRec(rect, preview_color);
-            DrawCircleLines(app.line_start.x, app.line_start.y, radius, BLACK);
         break;
         case SHAPE_RECTANGLE:
             DrawRectangleRec(rect, preview_color);
@@ -251,6 +265,8 @@ void draw_shape_preview()
         DrawLineV(app.line_start, mouse_pos, BLACK);
         DrawLineV(app.line_start, app.tri_second_vert, BLACK);
         DrawLineV(app.tri_second_vert, mouse_pos, BLACK);
+        DrawCircleV(app.line_start, 5, RED);
+        DrawCircleV(app.tri_second_vert, 5, RED);
     }
 }
 
@@ -299,6 +315,29 @@ bool is_button_clicked(Button btn)
     return CheckCollisionPointRec(point, rect);
 }
 
+void draw_selected_shape_tr_widget()
+{
+    Shape shape = {0};
+    bool selected_shape_found = false;
+    for (size_t i = 0; i < app.shapes.count; i++) {
+        shape = app.shapes.items[i];
+        if (shape.selected) {
+            selected_shape_found = true;
+            break;
+        }
+    }
+
+    if (!selected_shape_found) return;
+
+    int x = shape.bounds.x + shape.bounds.width/2  - app.translate_widget_texture.width/2;
+    int y = shape.bounds.y + shape.bounds.height/2 - app.translate_widget_texture.height/2;
+    DrawTexture(app.translate_widget_texture, x, y, WHITE);
+    DrawCircle(shape.bounds.x, shape.bounds.y, 5, BLACK);
+    DrawCircle(shape.bounds.x+shape.bounds.width, shape.bounds.y, 5, BLACK);
+    DrawCircle(shape.bounds.x+shape.bounds.width, shape.bounds.y+shape.bounds.height, 5, BLACK);
+    DrawCircle(shape.bounds.x, shape.bounds.y+shape.bounds.height, 5, BLACK);
+}
+
 int main()
 {
     const int width  = 800;
@@ -306,6 +345,12 @@ int main()
     SetTraceLogLevel(LOG_ERROR);
     InitWindow(width, height, "2D Shape Drawing App");
     configure_ui();
+
+    struct {
+        Shape **items;
+        size_t count;
+        size_t capacity;
+    } clicked_shapes = {0};
 
     while(!WindowShouldClose()) {
         float wheel = GetMouseWheelMove();
@@ -316,7 +361,53 @@ int main()
         }
 
         Vector2 mouse_pos = GetMousePosition();
-        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+
+        /* handle select mode */
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
+            bool selected_one = false;
+            clicked_shapes.count = 0;
+            for (size_t i = app.shapes.count; i > 0; i--) {
+                Shape *shape = &app.shapes.items[i-1];
+                if ((shape->clicked = CheckCollisionPointRec(mouse_pos, shape->bounds))) {
+                    da_append(&clicked_shapes, shape);
+                    if (!selected_one) {
+                        shape->selected = true;
+                        selected_one = true;
+                    } else {
+                        shape->selected = false;
+                    }
+                } else {
+                    shape->selected = false;
+                }
+            }
+            Edit_Mode prev_mode = app.mode;
+            app.mode = (selected_one) ? EDIT_MODE_SELECT : EDIT_MODE_NEW_SHAPE;
+            if (selected_one) app.selected_shape_index = 0;
+
+            /* if we just changed de selcted, then skip drawing the preview shape this frame */
+            if (app.mode == EDIT_MODE_NEW_SHAPE && prev_mode == EDIT_MODE_SELECT) {
+                app.skip_preview = true;
+            }
+        }
+
+        if (wheel != 0.0  && app.mode == EDIT_MODE_SELECT) {
+            if (clicked_shapes.count) {
+                size_t count = clicked_shapes.count;
+                if (wheel < 0) app.selected_shape_index = (app.selected_shape_index + count - 1)%count;
+                else           app.selected_shape_index = (app.selected_shape_index + 1)%count;
+                for (size_t i = 0; i < clicked_shapes.count; i++) {
+                    Shape *shape = clicked_shapes.items[i];
+                    shape->selected = app.selected_shape_index == i;
+                }
+            }
+        }
+
+        // reset or cancel current shape draw
+        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+            app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+        }
+
+        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !app.skip_preview) {
             if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
                 app.line_start = mouse_pos;
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_LINE_1;
@@ -326,10 +417,12 @@ int main()
                 } else {
                     app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
                     da_append(&app.shapes, create_shape(app.preview_shape));
+                    // printf("new shape added %d\n", app.preview_shape);
                 }
             } else if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_2) {
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
                 da_append(&app.shapes, create_shape(app.preview_shape));
+                // printf("new shape added %d\n", app.preview_shape);
             }
         }
 
@@ -342,10 +435,19 @@ int main()
             rlDisableBackfaceCulling();
 
             draw_shapes();
-            draw_shape_preview();
-            draw_shape_preview_icon();
+
+            if (app.mode == EDIT_MODE_SELECT)
+                draw_selected_shape_tr_widget();
+
+            if (app.mode == EDIT_MODE_NEW_SHAPE && !app.skip_preview) {
+                draw_shape_preview();
+                draw_shape_preview_icon();
+            }
+
             draw_side_panel();
         } EndDrawing();
+
+        app.skip_preview = false;
     }
     CloseWindow();
     return 0;
