@@ -40,7 +40,7 @@ typedef struct {
 
 typedef enum {
     EDIT_MODE_NEW_SHAPE,
-    EDIT_MODE_SELECT,
+    EDIT_MODE_SELECT, // select mode substate
     EDIT_MODE_COUNT,
 } Edit_Mode;
 
@@ -401,6 +401,25 @@ int main()
                 }
             }
         }
+
+        // if (app.mode == EDIT_MODE_SELECT && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        //     for (size_t i = 0; i < app.shapes.count; i++) {
+        //         Shape *shape = &app.shapes.items[i];
+        //         if (shape->selected) {
+        //             Rectangle translate_widget_bb = {
+        //                 .x = shape->bounds.x + shape->bounds.width/2  - app.translate_widget_texture.width/2,
+        //                 .y = shape->bounds.y + shape->bounds.height/2 - app.translate_widget_texture.height/2,
+        //                 .width  = app.translate_widget_texture.width,
+        //                 .height = app.translate_widget_texture.height,
+        //             };
+        //             if (CheckCollisionPointRec(mouse_pos, translate_widget_bb)) {
+        //                 shape->rect.x = mouse_pos.x - shape->rect.width/2;
+        //                 shape->rect.y = mouse_pos.y - shape->rect.height/2;
+        //                 shape->bounds = shape->rect;
+        //             }
+        //         }
+        //     }
+        // }
 
         // reset or cancel current shape draw
         if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
