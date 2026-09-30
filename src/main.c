@@ -25,7 +25,7 @@ typedef struct {
     int radius1;
     Vector2 position;
     Rectangle rect;
-    Rectangle bounds;
+    // Rectangle bounds;
     Color color;
     Vector2 p0, p1, p2;
     bool clicked;
@@ -111,24 +111,22 @@ Shape create_shape(Shape_Type type)
         rect.width = radius*sqrt(2);
         rect.height = radius*sqrt(2);
         shape.rect = rect;
-        shape.bounds = rect;
     } break;
     case SHAPE_RECTANGLE: {
         shape.rect = rect;
-        shape.bounds = rect;
-        if (shape.bounds.width < 0) {
-            shape.bounds.x += shape.bounds.width;
-            shape.bounds.width *= -1.0;
+        if (shape.rect.width < 0) {
+            shape.rect.x += shape.rect.width;
+            shape.rect.width *= -1.0;
         }
-        if (shape.bounds.height < 0) {
-            shape.bounds.y += shape.bounds.height;
-            shape.bounds.height *= -1.0;
+        if (shape.rect.height < 0) {
+            shape.rect.y += shape.rect.height;
+            shape.rect.height *= -1.0;
         }
     } break;
     case SHAPE_CIRCLE: {
         shape.radius0 = radius;
         shape.position = app.line_start;
-        shape.bounds = (Rectangle) {
+        shape.rect = (Rectangle) {
             .x = app.line_start.x - radius,
             .y = app.line_start.y - radius,
             .width  = 2*radius,
@@ -139,19 +137,19 @@ Shape create_shape(Shape_Type type)
         shape.radius0 = rect.width;
         shape.radius1 = rect.height;
         shape.position = app.line_start;
-        shape.bounds = (Rectangle) {
+        shape.rect = (Rectangle) {
             .x = app.line_start.x - rect.width,
             .y = app.line_start.y - rect.height,
             .width  = 2*rect.width,
             .height = 2*rect.height,
         };
-        if (shape.bounds.width < 0) {
-            shape.bounds.x += shape.bounds.width;
-            shape.bounds.width *= -1.0;
+        if (shape.rect.width < 0) {
+            shape.rect.x += shape.rect.width;
+            shape.rect.width *= -1.0;
         }
-        if (shape.bounds.height < 0) {
-            shape.bounds.y += shape.bounds.height;
-            shape.bounds.height *= -1.0;
+        if (shape.rect.height < 0) {
+            shape.rect.y += shape.rect.height;
+            shape.rect.height *= -1.0;
         }
     } break;
     case SHAPE_TRIANGLE: {
@@ -162,11 +160,11 @@ Shape create_shape(Shape_Type type)
         float min_y = MIN(MIN(shape.p0.y, shape.p1.y), shape.p2.y);
         float max_x = MAX(MAX(shape.p0.x, shape.p1.x), shape.p2.x);
         float max_y = MAX(MAX(shape.p0.y, shape.p1.y), shape.p2.y);
-        shape.bounds = (Rectangle){
+        shape.rect = (Rectangle){
             .x = min_x,
-                .y = min_y,
-                .width  = max_x - min_x + 1,
-                .height = max_y - min_y + 1,
+            .y = min_y,
+            .width  = max_x - min_x + 1,
+            .height = max_y - min_y + 1,
         };
     } break;
     default: UNREACHABLE("shape unrecognized");
@@ -202,7 +200,7 @@ void draw_shapes()
     for (size_t i = 0; i < app.shapes.count; i++) {
         Shape shape = app.shapes.items[i];
         if (shape.clicked) {
-            DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height,
+            DrawRectangleLines(shape.rect.x, shape.rect.y, shape.rect.width, shape.rect.height,
                                shape.selected ? YELLOW : BLACK);
         }
     }
@@ -210,7 +208,7 @@ void draw_shapes()
 #ifdef DEBUG_BOUNDING_BOX
     for (size_t i = 0; i < app.shapes.count; i++) {
         Shape shape = app.shapes.items[i];
-        DrawRectangleLines(shape.bounds.x, shape.bounds.y, shape.bounds.width, shape.bounds.height, BLACK);
+        DrawRectangleLines(shape.rect.x, shape.rect.y, shape.rect.width, shape.rect.height, BLACK);
     }
 #endif // DEBUG_BOUNDING_BOX
 }
@@ -329,13 +327,13 @@ void draw_selected_shape_tr_widget()
 
     if (!selected_shape_found) return;
 
-    int x = shape.bounds.x + shape.bounds.width/2  - app.translate_widget_texture.width/2;
-    int y = shape.bounds.y + shape.bounds.height/2 - app.translate_widget_texture.height/2;
+    int x = shape.rect.x + shape.rect.width/2  - app.translate_widget_texture.width/2;
+    int y = shape.rect.y + shape.rect.height/2 - app.translate_widget_texture.height/2;
     DrawTexture(app.translate_widget_texture, x, y, WHITE);
-    DrawCircle(shape.bounds.x, shape.bounds.y, 5, BLACK);
-    DrawCircle(shape.bounds.x+shape.bounds.width, shape.bounds.y, 5, BLACK);
-    DrawCircle(shape.bounds.x+shape.bounds.width, shape.bounds.y+shape.bounds.height, 5, BLACK);
-    DrawCircle(shape.bounds.x, shape.bounds.y+shape.bounds.height, 5, BLACK);
+    DrawCircle(shape.rect.x, shape.rect.y, 5, BLACK);
+    DrawCircle(shape.rect.x+shape.rect.width, shape.rect.y, 5, BLACK);
+    DrawCircle(shape.rect.x+shape.rect.width, shape.rect.y+shape.rect.height, 5, BLACK);
+    DrawCircle(shape.rect.x, shape.rect.y+shape.rect.height, 5, BLACK);
 }
 
 int main()
@@ -368,7 +366,7 @@ int main()
             clicked_shapes.count = 0;
             for (size_t i = app.shapes.count; i > 0; i--) {
                 Shape *shape = &app.shapes.items[i-1];
-                if ((shape->clicked = CheckCollisionPointRec(mouse_pos, shape->bounds))) {
+                if ((shape->clicked = CheckCollisionPointRec(mouse_pos, shape->rect))) {
                     da_append(&clicked_shapes, shape);
                     if (!selected_one) {
                         shape->selected = true;
@@ -407,15 +405,15 @@ int main()
         //         Shape *shape = &app.shapes.items[i];
         //         if (shape->selected) {
         //             Rectangle translate_widget_bb = {
-        //                 .x = shape->bounds.x + shape->bounds.width/2  - app.translate_widget_texture.width/2,
-        //                 .y = shape->bounds.y + shape->bounds.height/2 - app.translate_widget_texture.height/2,
+        //                 .x = shape->rect.x + shape->rect.width/2  - app.translate_widget_texture.width/2,
+        //                 .y = shape->rect.y + shape->rect.height/2 - app.translate_widget_texture.height/2,
         //                 .width  = app.translate_widget_texture.width,
         //                 .height = app.translate_widget_texture.height,
         //             };
         //             if (CheckCollisionPointRec(mouse_pos, translate_widget_bb)) {
         //                 shape->rect.x = mouse_pos.x - shape->rect.width/2;
         //                 shape->rect.y = mouse_pos.y - shape->rect.height/2;
-        //                 shape->bounds = shape->rect;
+        //                 shape->rect = shape->rect;
         //             }
         //         }
         //     }
