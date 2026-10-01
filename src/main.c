@@ -25,11 +25,12 @@ typedef struct {
     int radius1;
     Vector2 position;
     Rectangle rect;
-    // Rectangle bounds;
     Color color;
     Vector2 p0, p1, p2;
     bool clicked;
+    bool highlighted;
     bool selected;
+    RenderTexture2D target;
 } Shape;
 
 typedef struct {
@@ -68,6 +69,9 @@ static struct {
     size_t selected_shape_index;
     Texture translate_widget_texture;
     bool skip_preview;
+    // bool one_selected;
+
+    Rectangle prev_rect;
 
     struct {
         Color color;
@@ -94,26 +98,31 @@ Shape create_shape(Shape_Type type)
 {
     Vector2 mouse_pos = GetMousePosition();
     float radius = Vector2Length(Vector2Subtract(mouse_pos, app.line_start));
-    Rectangle rect = {
-        .x = app.line_start.x,
-        .y = app.line_start.y,
-        .width  = mouse_pos.x - app.line_start.x,
-        .height = mouse_pos.y - app.line_start.y,
-    };
     Shape shape = {
         .type = type,
         .color = PURPLE,
+        .rect = {
+            .x = app.line_start.x,
+            .y = app.line_start.y,
+            .width  = mouse_pos.x - app.line_start.x,
+            .height = mouse_pos.y - app.line_start.y,
+        },
     };
     switch (type) {
     case SHAPE_SQUARE: {
-        rect.x -= radius*0.5*sqrt(2);
-        rect.y -= radius*0.5*sqrt(2);
-        rect.width = radius*sqrt(2);
-        rect.height = radius*sqrt(2);
-        shape.rect = rect;
+        shape.rect.x -= radius*0.5*sqrt(2);
+        shape.rect.y -= radius*0.5*sqrt(2);
+        shape.rect.x += 0.5; // avoid shifting of preview shape when this reduces to an integer
+        shape.rect.y += 0.5;
+        shape.rect.width = radius*sqrt(2);
+        shape.rect.height = radius*sqrt(2);
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            DrawRectangle(0, 0, shape.rect.width, shape.rect.height, shape.color);
+        } EndTextureMode();
     } break;
     case SHAPE_RECTANGLE: {
-        shape.rect = rect;
         if (shape.rect.width < 0) {
             shape.rect.x += shape.rect.width;
             shape.rect.width *= -1.0;
@@ -122,6 +131,13 @@ Shape create_shape(Shape_Type type)
             shape.rect.y += shape.rect.height;
             shape.rect.height *= -1.0;
         }
+        shape.rect.x += 0.5; // avoid shifting of preview shape when this reduces to an integer
+        shape.rect.y += 0.5;
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            DrawRectangle(0, 0, shape.rect.width, shape.rect.height, shape.color);
+        } EndTextureMode();
     } break;
     case SHAPE_CIRCLE: {
         shape.radius0 = radius;
@@ -132,16 +148,27 @@ Shape create_shape(Shape_Type type)
             .width  = 2*radius,
             .height = 2*radius,
         };
+        shape.rect.x += 0.5; // avoid shifting of preview shape when this reduces to an integer
+        shape.rect.y += 0.5;
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            Vector2 center = {
+                .x = shape.rect.width/2,
+                .y = shape.rect.height/2,
+            };
+            DrawCircleV(center, shape.radius0, shape.color);
+        } EndTextureMode();
     } break;
     case SHAPE_ELLIPSE: {
-        shape.radius0 = rect.width;
-        shape.radius1 = rect.height;
+        shape.radius0 = shape.rect.width;
+        shape.radius1 = shape.rect.height;
         shape.position = app.line_start;
         shape.rect = (Rectangle) {
-            .x = app.line_start.x - rect.width,
-            .y = app.line_start.y - rect.height,
-            .width  = 2*rect.width,
-            .height = 2*rect.height,
+            .x = app.line_start.x - shape.rect.width,
+            .y = app.line_start.y - shape.rect.height,
+            .width  = 2*shape.rect.width,
+            .height = 2*shape.rect.height,
         };
         if (shape.rect.width < 0) {
             shape.rect.x += shape.rect.width;
@@ -151,6 +178,17 @@ Shape create_shape(Shape_Type type)
             shape.rect.y += shape.rect.height;
             shape.rect.height *= -1.0;
         }
+        shape.rect.x += 0.5; // avoid shifting of preview shape when this reduces to an integer
+        shape.rect.y += 0.5;
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            Vector2 center = {
+                .x = shape.rect.width/2,
+                .y = shape.rect.height/2,
+            };
+            DrawEllipse(center.x, center.y, shape.radius0, shape.radius1, shape.color);
+        } EndTextureMode();
     } break;
     case SHAPE_TRIANGLE: {
         shape.p0 = app.line_start;
@@ -166,6 +204,18 @@ Shape create_shape(Shape_Type type)
             .width  = max_x - min_x + 1,
             .height = max_y - min_y + 1,
         };
+        shape.rect.x += 0.5; // avoid shifting of preview shape when this reduces to an integer
+        shape.rect.y += 0.5;
+        shape.target = LoadRenderTexture(800, 600); // larger render target size to mitigate jaggies
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            Vector2 rect_pos  = {shape.rect.x, shape.rect.y};
+            Vector2 to_origin = Vector2Negate(rect_pos);
+            Vector2 draw_p0 = Vector2Add(shape.p0, to_origin);
+            Vector2 draw_p1 = Vector2Add(shape.p1, to_origin);
+            Vector2 draw_p2 = Vector2Add(shape.p2, to_origin);
+            DrawTriangle(draw_p0, draw_p1, draw_p2, shape.color);
+        } EndTextureMode();
     } break;
     default: UNREACHABLE("shape unrecognized");
     }
@@ -177,31 +227,18 @@ void draw_shapes()
 {
     for (size_t i = 0; i < app.shapes.count; i++) {
         Shape shape = app.shapes.items[i];
-        switch (shape.type) {
-        case SHAPE_SQUARE:
-            DrawRectangleRec(shape.rect, shape.color);
-        break;
-        case SHAPE_RECTANGLE:
-            DrawRectangleRec(shape.rect, shape.color);
-        break;
-        case SHAPE_CIRCLE:
-            DrawCircle(shape.position.x, shape.position.y, shape.radius0, shape.color);
-        break;
-        case SHAPE_ELLIPSE:
-            DrawEllipse(shape.position.x, shape.position.y, shape.radius0, shape.radius1, shape.color);
-        break;
-        case SHAPE_TRIANGLE:
-            DrawTriangle(shape.p0, shape.p1, shape.p2, shape.color);
-        break;
-        default:
-        }
+
+        DrawTexturePro(shape.target.texture,
+                       (Rectangle){ 0, 0, shape.target.texture.width, -shape.target.texture.height },
+                       (Rectangle){ shape.rect.x, shape.rect.y, shape.target.texture.width,  shape.target.texture.height },
+                       (Vector2){0.0f, 0.0f}, 0, WHITE);
     }
 
     for (size_t i = 0; i < app.shapes.count; i++) {
         Shape shape = app.shapes.items[i];
         if (shape.clicked) {
             DrawRectangleLines(shape.rect.x, shape.rect.y, shape.rect.width, shape.rect.height,
-                               shape.selected ? YELLOW : BLACK);
+                               shape.highlighted ? YELLOW : BLACK);
         }
     }
 
@@ -238,6 +275,8 @@ void draw_shape_preview()
             rect.y -= radius*0.5*sqrt(2);
             rect.width = radius*sqrt(2);
             rect.height = radius*sqrt(2);
+
+            app.prev_rect = rect;
         }
 
         switch (app.preview_shape) {
@@ -319,7 +358,7 @@ void draw_selected_shape_tr_widget()
     bool selected_shape_found = false;
     for (size_t i = 0; i < app.shapes.count; i++) {
         shape = app.shapes.items[i];
-        if (shape.selected) {
+        if (shape.highlighted) {
             selected_shape_found = true;
             break;
         }
@@ -334,6 +373,8 @@ void draw_selected_shape_tr_widget()
     DrawCircle(shape.rect.x+shape.rect.width, shape.rect.y, 5, BLACK);
     DrawCircle(shape.rect.x+shape.rect.width, shape.rect.y+shape.rect.height, 5, BLACK);
     DrawCircle(shape.rect.x, shape.rect.y+shape.rect.height, 5, BLACK);
+
+    DrawRectangleLines(x, y, app.translate_widget_texture.width, app.translate_widget_texture.width, GREEN);
 }
 
 int main()
@@ -362,25 +403,25 @@ int main()
 
         /* handle select mode */
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
-            bool selected_one = false;
+            bool highlighted_one = false;
             clicked_shapes.count = 0;
             for (size_t i = app.shapes.count; i > 0; i--) {
                 Shape *shape = &app.shapes.items[i-1];
                 if ((shape->clicked = CheckCollisionPointRec(mouse_pos, shape->rect))) {
                     da_append(&clicked_shapes, shape);
-                    if (!selected_one) {
-                        shape->selected = true;
-                        selected_one = true;
+                    if (!highlighted_one) {
+                        shape->highlighted = true;
+                        highlighted_one = true;
                     } else {
-                        shape->selected = false;
+                        shape->highlighted = false;
                     }
                 } else {
-                    shape->selected = false;
+                    shape->highlighted = false;
                 }
             }
             Edit_Mode prev_mode = app.mode;
-            app.mode = (selected_one) ? EDIT_MODE_SELECT : EDIT_MODE_NEW_SHAPE;
-            if (selected_one) app.selected_shape_index = 0;
+            app.mode = (highlighted_one) ? EDIT_MODE_SELECT : EDIT_MODE_NEW_SHAPE;
+            if (highlighted_one) app.selected_shape_index = 0;
 
             /* if we just changed de selcted, then skip drawing the preview shape this frame */
             if (app.mode == EDIT_MODE_NEW_SHAPE && prev_mode == EDIT_MODE_SELECT) {
@@ -395,29 +436,35 @@ int main()
                 else           app.selected_shape_index = (app.selected_shape_index + 1)%count;
                 for (size_t i = 0; i < clicked_shapes.count; i++) {
                     Shape *shape = clicked_shapes.items[i];
-                    shape->selected = app.selected_shape_index == i;
+                    shape->highlighted = app.selected_shape_index == i;
                 }
             }
         }
 
-        // if (app.mode == EDIT_MODE_SELECT && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-        //     for (size_t i = 0; i < app.shapes.count; i++) {
-        //         Shape *shape = &app.shapes.items[i];
-        //         if (shape->selected) {
-        //             Rectangle translate_widget_bb = {
-        //                 .x = shape->rect.x + shape->rect.width/2  - app.translate_widget_texture.width/2,
-        //                 .y = shape->rect.y + shape->rect.height/2 - app.translate_widget_texture.height/2,
-        //                 .width  = app.translate_widget_texture.width,
-        //                 .height = app.translate_widget_texture.height,
-        //             };
-        //             if (CheckCollisionPointRec(mouse_pos, translate_widget_bb)) {
-        //                 shape->rect.x = mouse_pos.x - shape->rect.width/2;
-        //                 shape->rect.y = mouse_pos.y - shape->rect.height/2;
-        //                 shape->rect = shape->rect;
-        //             }
-        //         }
-        //     }
-        // }
+        if (app.mode == EDIT_MODE_SELECT && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+            for (size_t i = 0; i < app.shapes.count; i++) {
+                Shape *shape = &app.shapes.items[i];
+                if (shape->highlighted) {
+                    Rectangle translate_widget_bb = {
+                        .x = shape->rect.x + shape->rect.width/2  - app.translate_widget_texture.width/2,
+                        .y = shape->rect.y + shape->rect.height/2 - app.translate_widget_texture.height/2,
+                        .width  = app.translate_widget_texture.width,
+                        .height = app.translate_widget_texture.height,
+                    };
+                    if (CheckCollisionPointRec(mouse_pos, translate_widget_bb) || shape->selected) {
+                        shape->rect.x = mouse_pos.x - shape->rect.width/2;
+                        shape->rect.y = mouse_pos.y - shape->rect.height/2;
+                        shape->rect = shape->rect;
+                        shape->selected = true;
+                        // app.one_selected = true;
+                    }
+                }
+            }
+        } else if (app.mode == EDIT_MODE_SELECT && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+            // app.one_selected = false;
+            for (size_t i = 0; i < app.shapes.count; i++)
+                app.shapes.items[i].selected = false;
+        }
 
         // reset or cancel current shape draw
         if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -434,12 +481,10 @@ int main()
                 } else {
                     app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
                     da_append(&app.shapes, create_shape(app.preview_shape));
-                    // printf("new shape added %d\n", app.preview_shape);
                 }
             } else if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LINE_2) {
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
                 da_append(&app.shapes, create_shape(app.preview_shape));
-                // printf("new shape added %d\n", app.preview_shape);
             }
         }
 
