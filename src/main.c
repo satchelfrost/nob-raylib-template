@@ -69,9 +69,6 @@ static struct {
     size_t selected_shape_index;
     Texture translate_widget_texture;
     bool skip_preview;
-    // bool one_selected;
-
-    Rectangle prev_rect;
 
     struct {
         Color color;
@@ -275,8 +272,6 @@ void draw_shape_preview()
             rect.y -= radius*0.5*sqrt(2);
             rect.width = radius*sqrt(2);
             rect.height = radius*sqrt(2);
-
-            app.prev_rect = rect;
         }
 
         switch (app.preview_shape) {
@@ -403,30 +398,32 @@ int main()
 
         /* handle select mode */
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
-            bool highlighted_one = false;
             clicked_shapes.count = 0;
             for (size_t i = app.shapes.count; i > 0; i--) {
                 Shape *shape = &app.shapes.items[i-1];
                 if ((shape->clicked = CheckCollisionPointRec(mouse_pos, shape->rect))) {
                     da_append(&clicked_shapes, shape);
-                    if (!highlighted_one) {
-                        shape->highlighted = true;
-                        highlighted_one = true;
-                    } else {
-                        shape->highlighted = false;
-                    }
                 } else {
                     shape->highlighted = false;
+                    shape->selected = false;
                 }
             }
             Edit_Mode prev_mode = app.mode;
-            app.mode = (highlighted_one) ? EDIT_MODE_SELECT : EDIT_MODE_NEW_SHAPE;
-            if (highlighted_one) app.selected_shape_index = 0;
+            app.mode = (clicked_shapes.count) ? EDIT_MODE_SELECT : EDIT_MODE_NEW_SHAPE;
 
-            /* if we just changed de selcted, then skip drawing the preview shape this frame */
+            /* if we just changed to selcted, then skip drawing the preview shape this frame */
             if (app.mode == EDIT_MODE_NEW_SHAPE && prev_mode == EDIT_MODE_SELECT) {
                 app.skip_preview = true;
             }
+        }
+
+        bool found = false;
+        for (size_t i = 0; i < clicked_shapes.count; i++) {
+            if (clicked_shapes.items[i]->highlighted)
+                found = true;
+        }
+        if (!found && clicked_shapes.count) {
+            clicked_shapes.items[0]->highlighted = true;
         }
 
         if (wheel != 0.0  && app.mode == EDIT_MODE_SELECT) {
@@ -434,6 +431,7 @@ int main()
                 size_t count = clicked_shapes.count;
                 if (wheel < 0) app.selected_shape_index = (app.selected_shape_index + count - 1)%count;
                 else           app.selected_shape_index = (app.selected_shape_index + 1)%count;
+                printf("index %zu\n", app.selected_shape_index);
                 for (size_t i = 0; i < clicked_shapes.count; i++) {
                     Shape *shape = clicked_shapes.items[i];
                     shape->highlighted = app.selected_shape_index == i;
@@ -456,12 +454,10 @@ int main()
                         shape->rect.y = mouse_pos.y - shape->rect.height/2;
                         shape->rect = shape->rect;
                         shape->selected = true;
-                        // app.one_selected = true;
                     }
                 }
             }
         } else if (app.mode == EDIT_MODE_SELECT && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-            // app.one_selected = false;
             for (size_t i = 0; i < app.shapes.count; i++)
                 app.shapes.items[i].selected = false;
         }
