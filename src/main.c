@@ -5,7 +5,9 @@
 
 #include "../nob.h"
 
-// #define DEBUG_BOUNDING_BOX
+// #define SHOW_DEBUG_BOUNDING_BOXES
+#define MIN_WIDTH  20
+#define MIN_HEIGHT 20
 
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 #define MAX(a, b) (a) > (b) ? (a) : (b)
@@ -29,7 +31,11 @@ typedef struct {
     Vector2 p0, p1, p2;
     bool clicked;
     bool highlighted;
-    bool selected;
+    bool selected_translate;
+    bool selected_top_left;
+    bool selected_top_right;
+    bool selected_bottom_left;
+    bool selected_bottom_right;
     RenderTexture2D target;
 } Shape;
 
@@ -66,7 +72,7 @@ static struct {
     New_Shape_Substate new_shape_substate;
     Vector2 line_start;      // initial mouse click
     Vector2 tri_second_vert; // secondary mouse click (specificallly only for triangles)
-    size_t selected_shape_index;
+    size_t highlighted_shape_index;
     Texture translate_widget_texture;
     bool skip_preview;
 
@@ -203,7 +209,7 @@ Shape create_shape(Shape_Type type)
         };
         shape.rect.x += 0.5; // avoid shifting of preview shape when this reduces to an integer
         shape.rect.y += 0.5;
-        shape.target = LoadRenderTexture(800, 600); // larger render target size to mitigate jaggies
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
         BeginTextureMode(shape.target); {
             ClearBackground(BLANK);
             Vector2 rect_pos  = {shape.rect.x, shape.rect.y};
@@ -227,7 +233,8 @@ void draw_shapes()
 
         DrawTexturePro(shape.target.texture,
                        (Rectangle){ 0, 0, shape.target.texture.width, -shape.target.texture.height },
-                       (Rectangle){ shape.rect.x, shape.rect.y, shape.target.texture.width,  shape.target.texture.height },
+                       // (Rectangle){ shape.rect.x, shape.rect.y, shape.target.texture.width,  shape.target.texture.height },
+                       (Rectangle){ shape.rect.x, shape.rect.y, shape.rect.width,  shape.rect.height },
                        (Vector2){0.0f, 0.0f}, 0, WHITE);
     }
 
@@ -238,13 +245,6 @@ void draw_shapes()
                                shape.highlighted ? YELLOW : BLACK);
         }
     }
-
-#ifdef DEBUG_BOUNDING_BOX
-    for (size_t i = 0; i < app.shapes.count; i++) {
-        Shape shape = app.shapes.items[i];
-        DrawRectangleLines(shape.rect.x, shape.rect.y, shape.rect.width, shape.rect.height, BLACK);
-    }
-#endif // DEBUG_BOUNDING_BOX
 }
 
 void draw_shape_preview()
@@ -347,29 +347,76 @@ bool is_button_clicked(Button btn)
     return CheckCollisionPointRec(point, rect);
 }
 
-void draw_selected_shape_tr_widget()
+typedef struct {
+    bool valid; // not valid if no highlighted shape found
+    struct {
+        Rectangle     top_left_bounding_box;
+        Rectangle    top_right_bounding_box;
+        Rectangle  bottom_left_bounding_box;
+        Rectangle bottom_right_bounding_box;
+    } scale;
+    Rectangle translate_bounding_box;
+} Edit_Widget_Info;
+
+Edit_Widget_Info get_highlighted_shape_edit_widget_info()
 {
+    Edit_Widget_Info widget_info = {0};
     Shape shape = {0};
-    bool selected_shape_found = false;
     for (size_t i = 0; i < app.shapes.count; i++) {
         shape = app.shapes.items[i];
         if (shape.highlighted) {
-            selected_shape_found = true;
+            widget_info.valid = true;
             break;
         }
     }
 
-    if (!selected_shape_found) return;
+    if (!widget_info.valid) return widget_info;
 
-    int x = shape.rect.x + shape.rect.width/2  - app.translate_widget_texture.width/2;
-    int y = shape.rect.y + shape.rect.height/2 - app.translate_widget_texture.height/2;
-    DrawTexture(app.translate_widget_texture, x, y, WHITE);
-    DrawCircle(shape.rect.x, shape.rect.y, 5, BLACK);
-    DrawCircle(shape.rect.x+shape.rect.width, shape.rect.y, 5, BLACK);
-    DrawCircle(shape.rect.x+shape.rect.width, shape.rect.y+shape.rect.height, 5, BLACK);
-    DrawCircle(shape.rect.x, shape.rect.y+shape.rect.height, 5, BLACK);
+    // calculate bounding boxes for edit widget info
+    int side = MIN_WIDTH;
+    widget_info.scale.top_left_bounding_box     = (Rectangle){shape.rect.x                          , shape.rect.y, side, side};
+    widget_info.scale.top_right_bounding_box    = (Rectangle){shape.rect.x - side + shape.rect.width, shape.rect.y, side, side};
+    widget_info.scale.bottom_left_bounding_box  = (Rectangle){shape.rect.x                          , shape.rect.y + shape.rect.height - side, side, side};
+    widget_info.scale.bottom_right_bounding_box = (Rectangle){shape.rect.x - side + shape.rect.width, shape.rect.y + shape.rect.height - side, side, side};
+    widget_info.translate_bounding_box = (Rectangle){
+        shape.rect.x + shape.rect.width/2  - app.translate_widget_texture.width/2,
+        shape.rect.y + shape.rect.height/2 - app.translate_widget_texture.height/2,
+        app.translate_widget_texture.width,
+        app.translate_widget_texture.width,
+    };
 
-    DrawRectangleLines(x, y, app.translate_widget_texture.width, app.translate_widget_texture.width, GREEN);
+    return widget_info;
+}
+
+void draw_highlighted_shape_edit_widgets()
+{
+    Edit_Widget_Info widget_info = get_highlighted_shape_edit_widget_info();
+    Rectangle t = widget_info.translate_bounding_box;
+    DrawTexture(app.translate_widget_texture, t.x, t.y, WHITE);
+    DrawRectangleRec(widget_info.scale.top_left_bounding_box,     BLACK);
+    DrawRectangleRec(widget_info.scale.top_right_bounding_box,    BLACK);
+    DrawRectangleRec(widget_info.scale.bottom_left_bounding_box,  BLACK);
+    DrawRectangleRec(widget_info.scale.bottom_right_bounding_box, BLACK);
+
+#ifdef SHOW_DEBUG_BOUNDING_BOXES
+    // bounding box for scaling widgets
+    DrawRectangleLinesEx(widget_info.scale.top_left_bounding_box,     1.0, RED);
+    DrawRectangleLinesEx(widget_info.scale.top_right_bounding_box,    1.0, RED);
+    DrawRectangleLinesEx(widget_info.scale.bottom_left_bounding_box,  1.0, RED);
+    DrawRectangleLinesEx(widget_info.scale.bottom_right_bounding_box, 1.0, RED);
+
+    // bounding box for translate widget
+    DrawRectangleLinesEx(widget_info.translate_bounding_box, 1.0, RED);
+#endif // SHOW_DEBUG_BOUNDING_BOXES
+}
+
+void deselect_all_edit_widgets(Shape *shape)
+{
+    shape->selected_translate    = false;
+    shape->selected_top_left     = false;
+    shape->selected_top_right    = false;
+    shape->selected_bottom_left  = false;
+    shape->selected_bottom_right = false;
 }
 
 int main()
@@ -405,7 +452,7 @@ int main()
                     da_append(&clicked_shapes, shape);
                 } else {
                     shape->highlighted = false;
-                    shape->selected = false;
+                    // shape->selected = false;
                 }
             }
             Edit_Mode prev_mode = app.mode;
@@ -417,24 +464,27 @@ int main()
             }
         }
 
-        bool found = false;
+        // highlight at least one of the clicked shapes, if any
+        bool any_shapes_highlighted = false;
         for (size_t i = 0; i < clicked_shapes.count; i++) {
-            if (clicked_shapes.items[i]->highlighted)
-                found = true;
+            if (clicked_shapes.items[i]->highlighted) {
+                any_shapes_highlighted = true;
+                app.highlighted_shape_index = i;
+            }
         }
-        if (!found && clicked_shapes.count) {
+        if (!any_shapes_highlighted && clicked_shapes.count) {
             clicked_shapes.items[0]->highlighted = true;
+            app.highlighted_shape_index = 0;
         }
 
         if (wheel != 0.0  && app.mode == EDIT_MODE_SELECT) {
             if (clicked_shapes.count) {
                 size_t count = clicked_shapes.count;
-                if (wheel < 0) app.selected_shape_index = (app.selected_shape_index + count - 1)%count;
-                else           app.selected_shape_index = (app.selected_shape_index + 1)%count;
-                printf("index %zu\n", app.selected_shape_index);
+                if (wheel < 0) app.highlighted_shape_index = (app.highlighted_shape_index + count - 1)%count;
+                else           app.highlighted_shape_index = (app.highlighted_shape_index + 1)%count;
                 for (size_t i = 0; i < clicked_shapes.count; i++) {
                     Shape *shape = clicked_shapes.items[i];
-                    shape->highlighted = app.selected_shape_index == i;
+                    shape->highlighted = app.highlighted_shape_index == i;
                 }
             }
         }
@@ -443,23 +493,84 @@ int main()
             for (size_t i = 0; i < app.shapes.count; i++) {
                 Shape *shape = &app.shapes.items[i];
                 if (shape->highlighted) {
-                    Rectangle translate_widget_bb = {
-                        .x = shape->rect.x + shape->rect.width/2  - app.translate_widget_texture.width/2,
-                        .y = shape->rect.y + shape->rect.height/2 - app.translate_widget_texture.height/2,
-                        .width  = app.translate_widget_texture.width,
-                        .height = app.translate_widget_texture.height,
-                    };
-                    if (CheckCollisionPointRec(mouse_pos, translate_widget_bb) || shape->selected) {
+                    Edit_Widget_Info widget_info = get_highlighted_shape_edit_widget_info();
+
+                    // first check to see if we are already selecting something
+                    if (shape->selected_translate) {
                         shape->rect.x = mouse_pos.x - shape->rect.width/2;
                         shape->rect.y = mouse_pos.y - shape->rect.height/2;
-                        shape->rect = shape->rect;
-                        shape->selected = true;
+                        continue;
+                    } else if (shape->selected_top_left) {
+                        float nx = mouse_pos.x - widget_info.scale.top_left_bounding_box.width/2;
+                        float ny = mouse_pos.y - widget_info.scale.top_left_bounding_box.height/2;
+                        float dx = shape->rect.x - nx;
+                        float dy = shape->rect.y - ny;
+                        float nw = shape->rect.width  + dx;
+                        float nh = shape->rect.height + dy;
+                        if (nw <= MIN_WIDTH || nh <= MIN_HEIGHT) continue;
+
+                        shape->rect.x      = nx;
+                        shape->rect.y      = ny;
+                        shape->rect.width  = nw;
+                        shape->rect.height = nh;
+                        continue;
+                    } else if (shape->selected_top_right) {
+                        float nx = mouse_pos.x + widget_info.scale.top_right_bounding_box.width/2 - shape->rect.width;
+                        float ny = mouse_pos.y - widget_info.scale.top_right_bounding_box.height/2;
+                        float dx = nx - shape->rect.x;
+                        float dy = shape->rect.y - ny;
+                        float nw = shape->rect.width  + dx;
+                        float nh = shape->rect.height + dy;
+                        if (nw <= MIN_WIDTH || nh <= MIN_HEIGHT) continue;
+
+                        shape->rect.y      = ny;
+                        shape->rect.width  = nw;
+                        shape->rect.height = nh;
+                        continue;
+                    } else if (shape->selected_bottom_left) {
+                        float nx = mouse_pos.x - widget_info.scale.top_left_bounding_box.width/2;
+                        float ny = mouse_pos.y + widget_info.scale.top_left_bounding_box.height/2 - shape->rect.height;
+                        float dx = shape->rect.x - nx;
+                        float dy = ny - shape->rect.y; // TODO: weird???
+                        float nw = shape->rect.width  + dx;
+                        float nh = shape->rect.height + dy;
+
+                        if (nw <= MIN_WIDTH || nh <= MIN_HEIGHT) continue;
+                        shape->rect.x      = nx;
+                        shape->rect.width  = nw;
+                        shape->rect.height = nh;
+                        continue;
+                    } else if (shape->selected_bottom_right) {
+                        float nw = mouse_pos.x - shape->rect.x + widget_info.scale.bottom_right_bounding_box.width/2;
+                        float nh = mouse_pos.y - shape->rect.y + widget_info.scale.bottom_right_bounding_box.height/2;
+                        if (nw <= MIN_WIDTH || nh <= MIN_HEIGHT) continue;
+                        shape->rect.width  = nw;
+                        shape->rect.height = nh;
+                        continue;
+                    }
+
+                    // if nothing was selected, then check for collision on one of the widgets
+                    if (CheckCollisionPointRec(mouse_pos, widget_info.translate_bounding_box)) {
+                        deselect_all_edit_widgets(shape);
+                        shape->selected_translate = true;
+                    } else if (CheckCollisionPointRec(mouse_pos, widget_info.scale.top_left_bounding_box)) {
+                        deselect_all_edit_widgets(shape);
+                        shape->selected_top_left = true;
+                    } else if (CheckCollisionPointRec(mouse_pos, widget_info.scale.bottom_left_bounding_box)) {
+                        deselect_all_edit_widgets(shape);
+                        shape->selected_bottom_left = true;
+                    } else if (CheckCollisionPointRec(mouse_pos, widget_info.scale.bottom_right_bounding_box)) {
+                        deselect_all_edit_widgets(shape);
+                        shape->selected_bottom_right = true;
+                    } else if (CheckCollisionPointRec(mouse_pos, widget_info.scale.top_right_bounding_box)) {
+                        deselect_all_edit_widgets(shape);
+                        shape->selected_top_right = true;
                     }
                 }
             }
         } else if (app.mode == EDIT_MODE_SELECT && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
             for (size_t i = 0; i < app.shapes.count; i++)
-                app.shapes.items[i].selected = false;
+                deselect_all_edit_widgets(&app.shapes.items[i]);
         }
 
         // reset or cancel current shape draw
@@ -495,7 +606,7 @@ int main()
             draw_shapes();
 
             if (app.mode == EDIT_MODE_SELECT)
-                draw_selected_shape_tr_widget();
+                draw_highlighted_shape_edit_widgets();
 
             if (app.mode == EDIT_MODE_NEW_SHAPE && !app.skip_preview) {
                 draw_shape_preview();
