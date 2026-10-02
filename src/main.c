@@ -434,6 +434,19 @@ int main()
     } clicked_shapes = {0};
 
     while(!WindowShouldClose()) {
+        if (IsKeyPressed(KEY_X) && IsKeyDown(KEY_LEFT_CONTROL)) {
+            printf("CUT!\n");
+        }
+        if (IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL)) {
+            printf("COPY!\n");
+        }
+        if (IsKeyPressed(KEY_V) && IsKeyDown(KEY_LEFT_CONTROL)) {
+            printf("PASTE!\n");
+        }
+        if (IsKeyPressed(KEY_DELETE)) {
+            printf("DELETE!\n");
+        }
+
         float wheel = GetMouseWheelMove();
         if (wheel != 0.0  && app.mode == EDIT_MODE_NEW_SHAPE &&
             app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
