@@ -31,6 +31,7 @@ typedef struct {
     int radius1;
     Vector2 position;
     Rectangle rect;
+    Rectangle original_rect;
     Color color;
     Vector2 p0, p1, p2;
     bool clicked;
@@ -55,6 +56,7 @@ typedef struct {
     int radius1;
     Vector2 position;
     Rectangle rect;
+    Rectangle original_rect;
     Color color;
     Vector2 p0, p1, p2;
 } Saved_Shape;
@@ -274,64 +276,76 @@ Shape create_shape(Shape_Type type)
     default: UNREACHABLE("shape unrecognized");
     }
 
+    shape.original_rect = shape.rect; // bookkeeping
+
     return shape;
 }
 
 Shape create_shape_from_saved(Saved_Shape saved_shape)
 {
+    // printf("shape type %d, shape color (%d, %d, %d, %d)\n", saved_shape.type,
+    //         saved_shape.color.r, saved_shape.color.g, saved_shape.color.b, saved_shape.color.a);
     Shape shape = {
         .type = saved_shape.type,
         .radius0 = saved_shape.radius0,
         .radius1 = saved_shape.radius1,
         .position = saved_shape.position,
         .rect = saved_shape.rect,
+        .original_rect = saved_shape.original_rect,
         .color = saved_shape.color,
         .p0 = saved_shape.p0,
         .p1 = saved_shape.p1,
         .p2 = saved_shape.p2,
     };
+    // if (saved_shape.type == SHAPE_TRIANGLE) {
+    //     printf("    p0 = {%f, %f}\n", shape.p0.x, shape.p0.y);
+    //     printf("    p1 = {%f, %f}\n", shape.p1.x, shape.p1.y);
+    //     printf("    p2 = {%f, %f}\n", shape.p2.x, shape.p2.y);
+    //     printf("    rect x, y, width, height = %f, %f, %f, %f\n", shape.rect.x, shape.rect.y, shape.rect.width, shape.rect.height);
+    // }
     switch (shape.type) {
     case SHAPE_SQUARE: {
-        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        shape.target = LoadRenderTexture(shape.original_rect.width, shape.original_rect.height);
         BeginTextureMode(shape.target); {
             ClearBackground(BLANK);
-            DrawRectangle(0, 0, shape.rect.width, shape.rect.height, shape.color);
+            DrawRectangle(0, 0, shape.original_rect.width, shape.original_rect.height, shape.color);
         } EndTextureMode();
     } break;
     case SHAPE_RECTANGLE: {
-        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        shape.target = LoadRenderTexture(shape.original_rect.width, shape.original_rect.height);
         BeginTextureMode(shape.target); {
             ClearBackground(BLANK);
-            DrawRectangle(0, 0, shape.rect.width, shape.rect.height, shape.color);
+            DrawRectangle(0, 0, shape.original_rect.width, shape.original_rect.height, shape.color);
         } EndTextureMode();
     } break;
     case SHAPE_CIRCLE: {
-        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        shape.target = LoadRenderTexture(shape.original_rect.width, shape.original_rect.height);
         BeginTextureMode(shape.target); {
             ClearBackground(BLANK);
             Vector2 center = {
-                .x = shape.rect.width/2,
-                .y = shape.rect.height/2,
+                .x = shape.original_rect.width/2,
+                .y = shape.original_rect.height/2,
             };
             DrawCircleV(center, shape.radius0, shape.color);
         } EndTextureMode();
     } break;
     case SHAPE_ELLIPSE: {
-        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        shape.target = LoadRenderTexture(shape.original_rect.width, shape.original_rect.height);
         BeginTextureMode(shape.target); {
             ClearBackground(BLANK);
             Vector2 center = {
-                .x = shape.rect.width/2,
-                .y = shape.rect.height/2,
+                .x = shape.original_rect.width/2,
+                .y = shape.original_rect.height/2,
             };
             DrawEllipse(center.x, center.y, shape.radius0, shape.radius1, shape.color);
         } EndTextureMode();
     } break;
     case SHAPE_TRIANGLE: {
-        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        shape.target = LoadRenderTexture(shape.original_rect.width, shape.original_rect.height);
         BeginTextureMode(shape.target); {
+            rlDisableBackfaceCulling();
             ClearBackground(BLANK);
-            Vector2 rect_pos  = {shape.rect.x, shape.rect.y};
+            Vector2 rect_pos  = {shape.original_rect.x, shape.original_rect.y};
             Vector2 to_origin = Vector2Negate(rect_pos);
             Vector2 draw_p0 = Vector2Add(shape.p0, to_origin);
             Vector2 draw_p1 = Vector2Add(shape.p1, to_origin);
@@ -671,6 +685,7 @@ int main(int argc, char **argv)
                 saved_shape.radius1  = shape.radius1;
                 saved_shape.position = shape.position;
                 saved_shape.rect     = shape.rect;
+                saved_shape.original_rect = shape.original_rect;
                 saved_shape.color    = shape.color;
                 saved_shape.p0       = shape.p0;
                 saved_shape.p1       = shape.p1;
@@ -699,14 +714,6 @@ int main(int argc, char **argv)
                 } else {
                     printf("saved image %s\n", png_file);
                 }
-
-                // target = LoadRenderTexture(800, 600);
-                // BeginTextureMode(shape.target); {
-                //     ClearBackground(WHITE);
-                //     draw_shapes();
-                // } EndTextureMode();
-                // SaveTextureAsImage
-
                 sb_free(sb);
             }
         }
