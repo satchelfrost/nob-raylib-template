@@ -2,7 +2,11 @@
 #include <stdio.h>
 #include "raymath.h"
 #include "rlgl.h"
+#include <time.h>
 
+#include "stb_image_write.h"
+
+#define NOB_IMPLEMENTATION
 #include "../nob.h"
 
 // #define SHOW_DEBUG_BOUNDING_BOXES
@@ -45,6 +49,16 @@ typedef struct {
     size_t capacity; 
 } Shapes;
 
+typedef struct {
+    Shape_Type type;
+    int radius0;
+    int radius1;
+    Vector2 position;
+    Rectangle rect;
+    Color color;
+    Vector2 p0, p1, p2;
+} Saved_Shape;
+
 typedef enum {
     EDIT_MODE_NEW_SHAPE,
     EDIT_MODE_SELECT, // select mode substate
@@ -57,15 +71,9 @@ typedef enum {
     NEW_SHAPE_SUBSTATE_LINE_2,
 } New_Shape_Substate;
 
-typedef enum {
-    BUTTON_DELETE,
-    BUTTON_NEW,
-    BUTTON_SAVE,
-    BUTTON_COUNT,
-} Button;
-
 static struct {
     Shapes shapes;
+    Shape copied_shape;
     Shape_Type preview_shape;
     Color preview_color;
     Edit_Mode mode;
@@ -81,15 +89,6 @@ static struct {
         int width, height;
 
         struct {
-            int length;
-            int padding;
-            Rectangle delete;
-            Rectangle new;
-            Rectangle save;
-            Rectangle load;
-        } button;
-
-        struct {
             Vector2 center;
             float radius;
             float value; // V in HSV
@@ -103,28 +102,15 @@ void configure_ui()
     app.panel.color      = GRAY;
     app.panel.width      = 125;
     app.panel.height     = GetScreenHeight();
-    app.panel.button.length = app.panel.width*0.9;
-    app.panel.button.padding = app.panel.width*0.05;
     app.panel.color_wheel.value  = 1.0;
     app.panel.color_wheel.radius = 55.0f;
     app.panel.color_wheel.center = (Vector2){app.panel.width/2.0f, app.panel.width/2.0f};
-    app.panel.button.delete = (Rectangle){.x = app.panel.button.padding,
-                                          .y = app.panel.height - app.panel.button.length - app.panel.button.padding,
-                                          .width = app.panel.button.length,
-                                          .height = app.panel.button.length};
-    app.panel.button.save = app.panel.button.delete;
-    app.panel.button.save.y -= app.panel.button.length + app.panel.button.padding;
-    app.panel.button.new = app.panel.button.save;
-    app.panel.button.new.y -= app.panel.button.length + app.panel.button.padding;
-    // app.panel.new;
-    app.translate_widget_texture = LoadTexture("assets/translate_32x32.png");
+    app.translate_widget_texture  = LoadTexture("assets/translate_32x32.png");
     app.preview_color = BLUE; // default preview color
 }
 
 void draw_side_panel()
 {
-    DrawRectangle(0, 0, app.panel.width, app.panel.height, app.panel.color);
-
     unsigned int tri_count = 64;
     float radius   = app.panel.color_wheel.radius;
     Vector2 center = app.panel.color_wheel.center;
@@ -160,10 +146,6 @@ void draw_side_panel()
     } rlEnd();
 
     DrawCircleLinesV(center, radius, BLACK);
-
-    DrawRectangleRec(app.panel.button.delete, RED);
-    DrawRectangleRec(app.panel.button.save, GREEN);
-    DrawRectangleRec(app.panel.button.new, YELLOW);
 }
 
 Shape create_shape(Shape_Type type)
@@ -295,6 +277,74 @@ Shape create_shape(Shape_Type type)
     return shape;
 }
 
+Shape create_shape_from_saved(Saved_Shape saved_shape)
+{
+    Shape shape = {
+        .type = saved_shape.type,
+        .radius0 = saved_shape.radius0,
+        .radius1 = saved_shape.radius1,
+        .position = saved_shape.position,
+        .rect = saved_shape.rect,
+        .color = saved_shape.color,
+        .p0 = saved_shape.p0,
+        .p1 = saved_shape.p1,
+        .p2 = saved_shape.p2,
+    };
+    switch (shape.type) {
+    case SHAPE_SQUARE: {
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            DrawRectangle(0, 0, shape.rect.width, shape.rect.height, shape.color);
+        } EndTextureMode();
+    } break;
+    case SHAPE_RECTANGLE: {
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            DrawRectangle(0, 0, shape.rect.width, shape.rect.height, shape.color);
+        } EndTextureMode();
+    } break;
+    case SHAPE_CIRCLE: {
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            Vector2 center = {
+                .x = shape.rect.width/2,
+                .y = shape.rect.height/2,
+            };
+            DrawCircleV(center, shape.radius0, shape.color);
+        } EndTextureMode();
+    } break;
+    case SHAPE_ELLIPSE: {
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            Vector2 center = {
+                .x = shape.rect.width/2,
+                .y = shape.rect.height/2,
+            };
+            DrawEllipse(center.x, center.y, shape.radius0, shape.radius1, shape.color);
+        } EndTextureMode();
+    } break;
+    case SHAPE_TRIANGLE: {
+        shape.target = LoadRenderTexture(shape.rect.width, shape.rect.height);
+        BeginTextureMode(shape.target); {
+            ClearBackground(BLANK);
+            Vector2 rect_pos  = {shape.rect.x, shape.rect.y};
+            Vector2 to_origin = Vector2Negate(rect_pos);
+            Vector2 draw_p0 = Vector2Add(shape.p0, to_origin);
+            Vector2 draw_p1 = Vector2Add(shape.p1, to_origin);
+            Vector2 draw_p2 = Vector2Add(shape.p2, to_origin);
+            DrawTriangle(draw_p0, draw_p1, draw_p2, shape.color);
+        } EndTextureMode();
+    } break;
+    default: UNREACHABLE("shape unrecognized");
+    }
+
+    return shape;
+}
+
 void draw_shapes()
 {
     for (size_t i = 0; i < app.shapes.count; i++) {
@@ -302,7 +352,6 @@ void draw_shapes()
 
         DrawTexturePro(shape.target.texture,
                        (Rectangle){ 0, 0, shape.target.texture.width, -shape.target.texture.height },
-                       // (Rectangle){ shape.rect.x, shape.rect.y, shape.target.texture.width,  shape.target.texture.height },
                        (Rectangle){ shape.rect.x, shape.rect.y, shape.rect.width,  shape.rect.height },
                        (Vector2){0.0f, 0.0f}, 0, WHITE);
     }
@@ -386,7 +435,7 @@ Color get_hovered_color_wheel_color()
         a         = Vector2Normalize(a);
         Vector2 b = {1.0f, 0.0f};
         float dot = Vector2DotProduct(a, b);
-        float hue = 0;
+        float hue = 0; // will be based on the angle inside of the color wheel [0, 360]
         if (dot >= 0) {
             if (mouse_pos.y <= center.y)
                 hue = dot*90;
@@ -433,22 +482,6 @@ void draw_shape_preview_icon()
         break;
         default:
         }
-    }
-}
-
-bool is_button_clicked(Button btn)
-{
-    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return false;
-    Vector2 point = GetMousePosition();
-
-    switch (btn) {
-    case BUTTON_DELETE:
-        return CheckCollisionPointRec(point, app.panel.button.delete);
-    case BUTTON_NEW:
-        return CheckCollisionPointRec(point, app.panel.button.new);
-    case BUTTON_SAVE:
-        return CheckCollisionPointRec(point, app.panel.button.save);
-    default: UNREACHABLE("is button clicked");
     }
 }
 
@@ -528,13 +561,28 @@ void deselect_all_edit_widgets(Shape *shape)
     shape->selected_bottom_right = false;
 }
 
-int main()
+int main(int argc, char **argv)
 {
     const int width  = 800;
     const int height = 600;
     SetTraceLogLevel(LOG_ERROR);
     InitWindow(width, height, "Minimal Shapes");
     configure_ui();
+
+    String_Builder sb = {0};
+
+    if (argc > 1) {
+        const char *save_file = argv[1];
+        if (!read_entire_file(save_file, &sb)) {
+            printf("ERROR failed to load %s\n", save_file);
+        } else {
+            Saved_Shape *saved_shapes = (Saved_Shape *)sb.items;
+            size_t saved_shape_count = sb.count/sizeof(Saved_Shape);
+            for (size_t i = 0; i < saved_shape_count; i++) {
+                da_append(&app.shapes, create_shape_from_saved(saved_shapes[i]));
+            }
+        }
+    }
 
     struct {
         Shape **items;
@@ -543,38 +591,126 @@ int main()
     } clicked_shapes = {0};
 
     while(!WindowShouldClose()) {
+        Vector2 mouse_pos = GetMousePosition();
+        bool on_color_wheel = CheckCollisionPointCircle(mouse_pos, app.panel.color_wheel.center, app.panel.color_wheel.radius);
+        bool on_canvas = !on_color_wheel;
+        float wheel = GetMouseWheelMove();
+
         if (IsKeyPressed(KEY_X) && IsKeyDown(KEY_LEFT_CONTROL)) {
-            printf("CUT!\n");
-        }
-        if (IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL)) {
-            printf("COPY!\n");
-        }
-        if (IsKeyPressed(KEY_V) && IsKeyDown(KEY_LEFT_CONTROL)) {
-            printf("PASTE!\n");
-        }
-        if (IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_BACKSPACE) || is_button_clicked(BUTTON_DELETE)) {
+            // remove the highlighted shape from the list, but preserve order
+            size_t highlighted_idx = 0;
+            bool highlighted_found = false;
             for (size_t i = 0; i < app.shapes.count; i++) {
                 if (app.shapes.items[i].highlighted) {
-                    da_remove_unordered(&app.shapes, i);
-                    app.mode = EDIT_MODE_NEW_SHAPE;
-                    app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+                    highlighted_found = true;
+                    highlighted_idx = i;
+                    app.copied_shape = app.shapes.items[i];
+                    break;
+                }
+            }
+            if (highlighted_found) {
+                for (size_t i = highlighted_idx + 1; i < app.shapes.count; i++)
+                    app.shapes.items[i-1] = app.shapes.items[i];
+                app.shapes.count--;
+                app.mode = EDIT_MODE_NEW_SHAPE;
+                app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+                clicked_shapes.count = 0;
+            }
+        }
+        if (IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL)) {
+            for (size_t i = 0; i < app.shapes.count; i++) {
+                if (app.shapes.items[i].highlighted) {
+                    app.copied_shape = app.shapes.items[i];
                     break;
                 }
             }
         }
-        if (is_button_clicked(BUTTON_NEW)) {
+        if (IsKeyPressed(KEY_V) && IsKeyDown(KEY_LEFT_CONTROL)) {
+            Shape shape = app.copied_shape;
+            shape.rect.x = mouse_pos.x;
+            shape.rect.y = mouse_pos.y;
+            shape.clicked = false;
+            shape.highlighted = false;
+            da_append(&app.shapes, shape);
+        }
+        if (IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_BACKSPACE)) {
+            /* NOTE that I'm not unloading the texture, but this should happen here.
+             * For now, I'm not going to worry about it */
+            // remove the highlighted shape from the list, but preserve order
+            size_t highlighted_idx = 0;
+            bool highlighted_found = false;
+            for (size_t i = 0; i < app.shapes.count; i++) {
+                if (app.shapes.items[i].highlighted) {
+                    highlighted_found = true;
+                    highlighted_idx = i;
+                    break;
+                }
+            }
+            if (highlighted_found) {
+                for (size_t i = highlighted_idx + 1; i < app.shapes.count; i++)
+                    app.shapes.items[i-1] = app.shapes.items[i];
+                app.shapes.count--;
+                app.mode = EDIT_MODE_NEW_SHAPE;
+                app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+                clicked_shapes.count = 0;
+            }
+        }
+        if (IsKeyPressed(KEY_N) && IsKeyDown(KEY_LEFT_CONTROL)) {
             app.mode = EDIT_MODE_NEW_SHAPE;
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
             app.shapes.count = 0;
+            clicked_shapes.count = 0;
         }
-        if (is_button_clicked(BUTTON_SAVE) || (IsKeyPressed(KEY_S) && IsKeyDown(KEY_LEFT_CONTROL))) {
-            printf("save\n");
+        if (IsKeyPressed(KEY_S) && IsKeyDown(KEY_LEFT_CONTROL)) {
+            String_Builder sb = {0};
+            for (size_t i = 0; i < app.shapes.count; i++) {
+                Saved_Shape saved_shape = {0};
+                Shape shape = app.shapes.items[i];
+                saved_shape.type     = shape.type;
+                saved_shape.radius0  = shape.radius0;
+                saved_shape.radius1  = shape.radius1;
+                saved_shape.position = shape.position;
+                saved_shape.rect     = shape.rect;
+                saved_shape.color    = shape.color;
+                saved_shape.p0       = shape.p0;
+                saved_shape.p1       = shape.p1;
+                saved_shape.p2       = shape.p2;
+
+                sb_append_buf(&sb, &saved_shape, sizeof(saved_shape));
+            }
+
+            if (sb.count) {
+                time_t t = time(NULL);
+                struct tm tm = *localtime(&t);
+                const char *save_file = temp_sprintf("%d-%02d-%02d_%02d:%02d:%02d.bin",
+                                                     tm.tm_year + 1900, tm.tm_mon + 1,
+                                                     tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+                if (!write_entire_file(save_file, sb.items, sb.count)) return 1;
+                else printf("saved %s (%zu bytes)\n", save_file, sb.count);
+
+                const char *png_file = temp_sprintf("%d-%02d-%02d_%02d:%02d:%02d.png",
+                                                    tm.tm_year + 1900, tm.tm_mon + 1,
+                                                    tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+                Image image = LoadImageFromScreen();
+                int force_comp = 4;
+                int result = stbi_write_png(png_file, image.width, image.height, force_comp, image.data, 0);
+                if (!result) {
+                    printf("ERROR: failed to save %s\n", png_file);
+                } else {
+                    printf("saved image %s\n", png_file);
+                }
+
+                // target = LoadRenderTexture(800, 600);
+                // BeginTextureMode(shape.target); {
+                //     ClearBackground(WHITE);
+                //     draw_shapes();
+                // } EndTextureMode();
+                // SaveTextureAsImage
+
+                sb_free(sb);
+            }
         }
 
-        Vector2 mouse_pos = GetMousePosition();
-        bool on_canvas = mouse_pos.x > app.panel.width;
-
-        float wheel = GetMouseWheelMove();
         if (wheel != 0.0  && app.mode == EDIT_MODE_NEW_SHAPE &&
             app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
 
