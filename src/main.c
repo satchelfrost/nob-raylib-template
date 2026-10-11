@@ -4,6 +4,8 @@
 #include "rlgl.h"
 #include <time.h>
 
+#define ASSIGNMENT_3
+
 #include "stb_image_write.h"
 
 #define NOB_IMPLEMENTATION
@@ -73,6 +75,14 @@ typedef enum {
     NEW_SHAPE_SUBSTATE_LINE_2,
 } New_Shape_Substate;
 
+typedef struct {
+    Vector2 *items;
+    size_t count;
+    size_t capacity;
+} Samples;
+
+typedef Samples Vectors;
+
 static struct {
     Shapes shapes;
     Shape copied_shape;
@@ -97,6 +107,13 @@ static struct {
         } color_wheel;
 
     } panel;
+
+
+    // assignment 3 additions
+    bool sampling;
+    Samples samples;
+    Samples resamples;
+    Vectors vectors;
 } app = {0};
 
 void configure_ui()
@@ -109,6 +126,44 @@ void configure_ui()
     app.panel.color_wheel.center = (Vector2){app.panel.width/2.0f, app.panel.width/2.0f};
     app.translate_widget_texture  = LoadTexture("assets/translate_32x32.png");
     app.preview_color = BLUE; // default preview color
+}
+
+float get_path_length(Samples samples)
+{
+    float path_length = 0;
+
+    for (size_t i = 1; i < samples.count; i++)
+        path_length += Vector2Length(Vector2Subtract(samples.items[i], samples.items[i-1]));
+
+    return path_length;
+}
+
+void resample_between_points(Samples samples, Samples *resamples, Vectors *v)
+{
+    // Note: I'm going to use variables directly from the paper:
+    // "Penny Pincher: A Blazing Fast, Highly Accurate $-Family Recognizer",
+    // specifically the last page where the psuedocode is described */
+    if (samples.count < 2) return;
+
+    float I = get_path_length(samples)/(samples.count - 1);
+    float D = 0.0f;
+    Vector2 prev = samples.items[0];
+
+    for (size_t i = 1; i < samples.count; i++) {
+        Vector2 diff = Vector2Subtract(samples.items[i], samples.items[i-1]);
+        float d = Vector2Length(diff);
+        if ((D + d) >= I) {
+            Vector2 q = Vector2Add(samples.items[i-1], Vector2Scale(diff, (I-D)/d));
+            Vector2 r = Vector2Subtract(q, prev);
+            r = Vector2Scale(r, 1/Vector2Length(r));
+            D = 0;
+            prev = q;
+            da_append(v, r);
+            da_append(resamples, q);
+        } else {
+            D += d;
+        }
+    }
 }
 
 void draw_side_panel()
@@ -605,6 +660,37 @@ int main(int argc, char **argv)
     } clicked_shapes = {0};
 
     while(!WindowShouldClose()) {
+#ifdef ASSIGNMENT_3
+        UNUSED(clicked_shapes);
+        Vector2 mouse_pos = GetMousePosition();
+
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.sampling) {
+            app.sampling = true;
+            app.samples.count = 0;
+        }
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.sampling) {
+            app.sampling = false;
+            app.vectors.count = 0;
+            app.resamples.count = 0;
+            resample_between_points(app.samples, &app.resamples, &app.vectors);
+        }
+
+        // sample the mouse position
+        if (app.sampling) da_append(&app.samples, mouse_pos);
+
+        BeginDrawing(); {
+            ClearBackground(WHITE);
+            for (size_t i = 0; i < app.samples.count; i++) {
+                DrawCircleV(app.samples.items[i], 5, RED);
+            }
+            for (size_t i = 0; i < app.resamples.count; i++) {
+                Vector2 start = app.resamples.items[i];
+                DrawCircleV(start, 5, BLUE);
+                Vector2 end = Vector2Add(start, Vector2Scale(app.vectors.items[i], 50));
+                DrawLineV(start, end, BLACK);
+            }
+        } EndDrawing();
+#else // ASSIGNMENT_2
         Vector2 mouse_pos = GetMousePosition();
         bool on_color_wheel = CheckCollisionPointCircle(mouse_pos, app.panel.color_wheel.center, app.panel.color_wheel.radius);
         bool on_canvas = !on_color_wheel;
@@ -920,6 +1006,7 @@ int main(int argc, char **argv)
         } EndDrawing();
 
         app.skip_preview = false;
+#endif // ASSIGNMENT_3
     }
     CloseWindow();
     return 0;
