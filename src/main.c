@@ -3,8 +3,9 @@
 #include "raymath.h"
 #include "rlgl.h"
 #include <time.h>
+#include <float.h>
 
-#define ASSIGNMENT_3
+// #define ASSIGNMENT_3
 
 #include "stb_image_write.h"
 
@@ -84,7 +85,11 @@ typedef struct {
 typedef Samples Vectors;
 
 typedef enum {
-    TEMPLATE_E,
+    TEMPLATE_SQUARE,
+    TEMPLATE_RECTANGLE,
+    TEMPLATE_CIRCLE,
+    TEMPLATE_ELLIPSE,
+    TEMPLATE_TRIANGLE,
     TEMPLATE_COUNT,
 } Template_Type;
 
@@ -126,6 +131,8 @@ static struct {
     bool sampling;
     Samples samples; // training samples
 
+    bool train_template;
+    Template_Type template_index;
     Draw_Gesture gesture;
     Template templates[TEMPLATE_COUNT];
 } app = {0};
@@ -152,7 +159,7 @@ float get_path_length(Samples samples)
     return path_length;
 }
 
-#define RESAMPLE_COUNT 10
+#define RESAMPLE_COUNT 30
 
 bool resample_between_points(Samples samples, Template *template, bool is_template)
 {
@@ -162,17 +169,16 @@ bool resample_between_points(Samples samples, Template *template, bool is_templa
     if (samples.count < 2 || samples.count < RESAMPLE_COUNT) return false;
 
     float path_length = get_path_length(samples);
-    printf("path length %f\n", path_length);
 
     float I = path_length/(RESAMPLE_COUNT - 1);
-    printf("thresholed %f\n", I);
     float D = 0.0f;
     Vector2 prev = samples.items[0];
+    da_append(&template->resamples, prev);
 
     for (size_t i = 1; i < samples.count; i++) {
         Vector2 diff = Vector2Subtract(samples.items[i], samples.items[i-1]);
         float d = Vector2Length(diff);
-        if ((D + d) >= I) {
+        if ((D + d) >= I || i == samples.count - 1) {
             Vector2 q = Vector2Add(samples.items[i-1], Vector2Scale(diff, (I-D)/d));
             Vector2 r = Vector2Subtract(q, prev);
             if (is_template) r = Vector2Scale(r, 1/Vector2Length(r));
@@ -186,6 +192,18 @@ bool resample_between_points(Samples samples, Template *template, bool is_templa
     }
 
     return true;
+}
+
+const char *template_type_to_str(Template_Type type)
+{
+    switch (type) {
+    case TEMPLATE_SQUARE:    return "TEMPLATE_SQUARE";
+    case TEMPLATE_RECTANGLE: return "TEMPLATE_RECTANGLE";
+    case TEMPLATE_CIRCLE:    return "TEMPLATE_CIRCLE";
+    case TEMPLATE_ELLIPSE:   return "TEMPLATE_ELLIPSE";
+    case TEMPLATE_TRIANGLE:  return "TEMPLATE_TRIANGLE";
+    default: UNREACHABLE("template type to str");
+    }
 }
 
 void draw_side_panel()
@@ -656,14 +674,10 @@ float score(Template template, Draw_Gesture gesture)
 {
     float score = 0;
     
-    if (template.vectors.count != gesture.vectors.count) {
-        printf("template %zu, gesture %zu\n", template.vectors.count, gesture.vectors.count);
-        assert(0);
-    }
+    size_t count = MIN(template.vectors.count, gesture.vectors.count);
 
-    for (size_t i = 0; i < template.vectors.count; i++) {
+    for (size_t i = 0; i < count; i++)
         score += Vector2DotProduct(template.vectors.items[i], gesture.vectors.items[i]);
-    }
     return score;
 }
 
@@ -674,6 +688,7 @@ int main(int argc, char **argv)
     SetTraceLogLevel(LOG_ERROR);
     InitWindow(width, height, "Minimal Shapes");
     configure_ui();
+    app.train_template = true;
 
     String_Builder sb = {0};
 
@@ -696,14 +711,15 @@ int main(int argc, char **argv)
         size_t capacity;
     } clicked_shapes = {0};
 
-    bool train_template = true;
-    Template_Type template_index = 0;
-
     while(!WindowShouldClose()) {
 #ifdef ASSIGNMENT_3
         UNUSED(clicked_shapes);
         Vector2 mouse_pos = GetMousePosition();
-        if (IsKeyPressed(KEY_T)) train_template = true;
+        if (IsKeyPressed(KEY_T)) {
+            app.train_template = true;
+            app.template_index = (app.template_index + 1)%TEMPLATE_COUNT;
+            printf("ready to train %s\n", template_type_to_str(app.template_index));
+        }
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.sampling) {
             app.sampling = true;
@@ -711,22 +727,29 @@ int main(int argc, char **argv)
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.sampling) {
             app.sampling = false;
-            if (train_template) {
-                printf("train\n");
-                Template *t = &app.templates[template_index];
+            if (app.train_template) {
+                printf("training %s\n", template_type_to_str(app.template_index));
+                Template *t = &app.templates[app.template_index];
                 t->vectors.count = 0;
                 t->resamples.count = 0;
-                resample_between_points(app.samples, t, train_template);
-                printf("samples %zu, resamples %zu, vectors %zu\n", app.samples.count, t->resamples.count, t->vectors.count);
-                train_template = false;
+                resample_between_points(app.samples, t, app.train_template);
+                app.train_template = false;
             } else {
                 app.gesture.vectors.count = 0;
                 app.gesture.resamples.count = 0;
-                resample_between_points(app.samples, &app.gesture, train_template);
-                printf("resamples %zu, vectors %zu\n", app.gesture.resamples.count, app.gesture.vectors.count);
+                resample_between_points(app.samples, &app.gesture, app.train_template);
 
-                float s = score(app.templates[0], app.gesture);
-                printf("score %f\n", s);
+                float highest_score = -FLT_MAX;
+                Template_Type tt = 0;
+                for (int i = 0; i < TEMPLATE_COUNT; i++) {
+                    float s = score(app.templates[i], app.gesture);
+                    if (s > highest_score) {
+                        highest_score = s;
+                        tt = i;
+                    }
+                }
+
+                printf("the highest score was %f, which was template %s\n", highest_score, template_type_to_str(tt));
             }
         }
 
@@ -746,16 +769,10 @@ int main(int argc, char **argv)
             for (size_t i = 0; i < app.samples.count; i++) {
                 DrawCircleV(app.samples.items[i], 5, RED);
             }
-            // for (size_t i = 0; i < app.gesture.resamples.count; i++) {
-            //     Vector2 start = app.gesture.resamples.items[i];
-            //     DrawCircleV(start, 5, BLUE);
-            //     Vector2 end = Vector2Add(start, Vector2Scale(app.gesture.vectors.items[i], 50));
-            //     DrawLineV(start, end, BLACK);
-            // }
-            for (size_t i = 0; i < app.templates[0].resamples.count; i++) {
-                Vector2 start = app.templates[0].resamples.items[i];
+            for (size_t i = 0; i < app.gesture.resamples.count; i++) {
+                Vector2 start = app.gesture.resamples.items[i];
                 DrawCircleV(start, 5, BLUE);
-                Vector2 end = Vector2Add(start, Vector2Scale(app.templates[0].vectors.items[i], 50));
+                Vector2 end = Vector2Add(start, Vector2Scale(app.gesture.vectors.items[i], 1));
                 DrawLineV(start, end, BLACK);
             }
         } EndDrawing();
