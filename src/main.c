@@ -12,8 +12,8 @@
 #include "../nob.h"
 
 // #define SHOW_DEBUG_BOUNDING_BOXES
-#define MIN_WIDTH  20
-#define MIN_HEIGHT 20
+#define MIN_WIDTH  30
+#define MIN_HEIGHT 30
 
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 #define MAX(a, b) (a) > (b) ? (a) : (b)
@@ -83,6 +83,19 @@ typedef struct {
 
 typedef Samples Vectors;
 
+typedef enum {
+    TEMPLATE_E,
+    TEMPLATE_COUNT,
+} Template_Type;
+
+typedef struct {
+    Template_Type type;
+    Samples resamples;
+    Vectors vectors;
+} Template;
+
+typedef Template Draw_Gesture;
+
 static struct {
     Shapes shapes;
     Shape copied_shape;
@@ -111,9 +124,10 @@ static struct {
 
     // assignment 3 additions
     bool sampling;
-    Samples samples;
-    Samples resamples;
-    Vectors vectors;
+    Samples samples; // training samples
+
+    Draw_Gesture gesture;
+    Template templates[TEMPLATE_COUNT];
 } app = {0};
 
 void configure_ui()
@@ -138,14 +152,20 @@ float get_path_length(Samples samples)
     return path_length;
 }
 
-void resample_between_points(Samples samples, Samples *resamples, Vectors *v)
+#define RESAMPLE_COUNT 10
+
+bool resample_between_points(Samples samples, Template *template, bool is_template)
 {
     // Note: I'm going to use variables directly from the paper:
     // "Penny Pincher: A Blazing Fast, Highly Accurate $-Family Recognizer",
     // specifically the last page where the psuedocode is described */
-    if (samples.count < 2) return;
+    if (samples.count < 2 || samples.count < RESAMPLE_COUNT) return false;
 
-    float I = get_path_length(samples)/(samples.count - 1);
+    float path_length = get_path_length(samples);
+    printf("path length %f\n", path_length);
+
+    float I = path_length/(RESAMPLE_COUNT - 1);
+    printf("thresholed %f\n", I);
     float D = 0.0f;
     Vector2 prev = samples.items[0];
 
@@ -155,15 +175,17 @@ void resample_between_points(Samples samples, Samples *resamples, Vectors *v)
         if ((D + d) >= I) {
             Vector2 q = Vector2Add(samples.items[i-1], Vector2Scale(diff, (I-D)/d));
             Vector2 r = Vector2Subtract(q, prev);
-            r = Vector2Scale(r, 1/Vector2Length(r));
+            if (is_template) r = Vector2Scale(r, 1/Vector2Length(r));
             D = 0;
             prev = q;
-            da_append(v, r);
-            da_append(resamples, q);
+            da_append(&template->vectors, r);
+            da_append(&template->resamples, q);
         } else {
             D += d;
         }
     }
+
+    return true;
 }
 
 void draw_side_panel()
@@ -630,6 +652,21 @@ void deselect_all_edit_widgets(Shape *shape)
     shape->selected_bottom_right = false;
 }
 
+float score(Template template, Draw_Gesture gesture)
+{
+    float score = 0;
+    
+    if (template.vectors.count != gesture.vectors.count) {
+        printf("template %zu, gesture %zu\n", template.vectors.count, gesture.vectors.count);
+        assert(0);
+    }
+
+    for (size_t i = 0; i < template.vectors.count; i++) {
+        score += Vector2DotProduct(template.vectors.items[i], gesture.vectors.items[i]);
+    }
+    return score;
+}
+
 int main(int argc, char **argv)
 {
     const int width  = 800;
@@ -659,10 +696,14 @@ int main(int argc, char **argv)
         size_t capacity;
     } clicked_shapes = {0};
 
+    bool train_template = true;
+    Template_Type template_index = 0;
+
     while(!WindowShouldClose()) {
 #ifdef ASSIGNMENT_3
         UNUSED(clicked_shapes);
         Vector2 mouse_pos = GetMousePosition();
+        if (IsKeyPressed(KEY_T)) train_template = true;
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.sampling) {
             app.sampling = true;
@@ -670,23 +711,51 @@ int main(int argc, char **argv)
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.sampling) {
             app.sampling = false;
-            app.vectors.count = 0;
-            app.resamples.count = 0;
-            resample_between_points(app.samples, &app.resamples, &app.vectors);
+            if (train_template) {
+                printf("train\n");
+                Template *t = &app.templates[template_index];
+                t->vectors.count = 0;
+                t->resamples.count = 0;
+                resample_between_points(app.samples, t, train_template);
+                printf("samples %zu, resamples %zu, vectors %zu\n", app.samples.count, t->resamples.count, t->vectors.count);
+                train_template = false;
+            } else {
+                app.gesture.vectors.count = 0;
+                app.gesture.resamples.count = 0;
+                resample_between_points(app.samples, &app.gesture, train_template);
+                printf("resamples %zu, vectors %zu\n", app.gesture.resamples.count, app.gesture.vectors.count);
+
+                float s = score(app.templates[0], app.gesture);
+                printf("score %f\n", s);
+            }
         }
 
         // sample the mouse position
-        if (app.sampling) da_append(&app.samples, mouse_pos);
+        if (app.sampling) {
+            if (app.samples.count) {
+                Vector2 last = da_last(&app.samples);
+                if (last.x != mouse_pos.x || last.y != mouse_pos.y)
+                    da_append(&app.samples, mouse_pos);
+            } else {
+                da_append(&app.samples, mouse_pos);
+            }
+        }
 
         BeginDrawing(); {
             ClearBackground(WHITE);
             for (size_t i = 0; i < app.samples.count; i++) {
                 DrawCircleV(app.samples.items[i], 5, RED);
             }
-            for (size_t i = 0; i < app.resamples.count; i++) {
-                Vector2 start = app.resamples.items[i];
+            // for (size_t i = 0; i < app.gesture.resamples.count; i++) {
+            //     Vector2 start = app.gesture.resamples.items[i];
+            //     DrawCircleV(start, 5, BLUE);
+            //     Vector2 end = Vector2Add(start, Vector2Scale(app.gesture.vectors.items[i], 50));
+            //     DrawLineV(start, end, BLACK);
+            // }
+            for (size_t i = 0; i < app.templates[0].resamples.count; i++) {
+                Vector2 start = app.templates[0].resamples.items[i];
                 DrawCircleV(start, 5, BLUE);
-                Vector2 end = Vector2Add(start, Vector2Scale(app.vectors.items[i], 50));
+                Vector2 end = Vector2Add(start, Vector2Scale(app.templates[0].vectors.items[i], 50));
                 DrawLineV(start, end, BLACK);
             }
         } EndDrawing();
