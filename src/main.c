@@ -1140,14 +1140,14 @@ int main(int argc, char **argv)
                 for (size_t i = 0; i < app.samples.count; i++) {
                     DrawCircleV(app.samples.items[i], 5, RED);
                 }
-                // if (0) { // this will show the resample points
+                if (0) { // this will show the resample points
                     for (size_t i = 0; i < app.current_gesture.resamples.count; i++) {
                         Vector2 start = app.current_gesture.resamples.items[i];
                         DrawCircleV(start, 5, BLUE);
                         Vector2 end = Vector2Add(start, Vector2Scale(app.current_gesture.vectors.items[i], 1));
                         DrawLineV(start, end, BLACK);
                     }
-                // }
+                }
             }
         } EndDrawing();
 
