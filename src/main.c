@@ -5,8 +5,6 @@
 #include <time.h>
 #include <float.h>
 
-#define ASSIGNMENT_3
-
 #include "stb_image_write.h"
 
 #define NOB_IMPLEMENTATION
@@ -75,6 +73,7 @@ typedef enum {
 
 typedef enum {
     NEW_SHAPE_SUBSTATE_PREVIEW,
+    NEW_SHAPE_SUBSTATE_GESTURE,
     NEW_SHAPE_SUBSTATE_LINE_1,
     NEW_SHAPE_SUBSTATE_LINE_2,
 } New_Shape_Substate;
@@ -139,7 +138,7 @@ static struct {
     bool sampling;
     Samples samples;
     bool training;
-    Template_Type template_index;
+    Template_Type template_training_index;
     Draw_Gesture gesture;
     Template templates[TEMPLATE_COUNT];
 } app = {0};
@@ -689,7 +688,7 @@ void configure_ui()
 void configure_app()
 {
     configure_ui();
-    app.template_index = TEMPLATE_TRIANGLE;
+    app.template_training_index = TEMPLATE_TRIANGLE;
 
     /* try to load template file */
     String_Builder sb = {0};
@@ -743,13 +742,15 @@ int main(int argc, char **argv)
     } clicked_shapes = {0};
 
     while(!WindowShouldClose()) {
-#ifdef ASSIGNMENT_3
-        UNUSED(clicked_shapes);
         Vector2 mouse_pos = GetMousePosition();
+        bool on_color_wheel = CheckCollisionPointCircle(mouse_pos, app.panel.color_wheel.center, app.panel.color_wheel.radius);
+        bool on_canvas = !on_color_wheel;
+        float wheel = GetMouseWheelMove();
+
         if (IsKeyPressed(KEY_T) && !IsKeyDown(KEY_LEFT_CONTROL)) {
             app.training = true;
-            app.template_index = (app.template_index + 1)%TEMPLATE_COUNT;
-            printf("ready to train %s\n", template_type_to_str(app.template_index));
+            app.template_training_index = (app.template_training_index + 1)%TEMPLATE_COUNT;
+            printf("ready to train %s\n", template_type_to_str(app.template_training_index));
         }
         if (IsKeyPressed(KEY_T) && IsKeyDown(KEY_LEFT_CONTROL)) {
             String_Builder sb = {0};
@@ -770,15 +771,20 @@ int main(int argc, char **argv)
             sb_free(sb);
         }
 
-        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.sampling) {
+        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
+            app.new_shape_substate = NEW_SHAPE_SUBSTATE_GESTURE;
+        }
+        if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_GESTURE &&
+            IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.sampling) {
             app.sampling = true;
             app.samples.count = 0;
         }
-        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.sampling) {
+        if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_GESTURE &&
+            IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.sampling) {
             app.sampling = false;
             if (app.training) {
-                printf("training %s\n", template_type_to_str(app.template_index));
-                Template *t = &app.templates[app.template_index];
+                printf("trained template %s\n", template_type_to_str(app.template_training_index));
+                Template *t = &app.templates[app.template_training_index];
                 t->vectors.count = 0;
                 t->resamples.count = 0;
                 resample_between_points(app.samples, t, app.training);
@@ -798,11 +804,25 @@ int main(int argc, char **argv)
                     }
                 }
 
-                printf("the highest score was %f, which was template %s\n", highest_score, template_type_to_str(tt));
+                // printf("the highest score was %f, which was template %s\n", highest_score, template_type_to_str(tt));
+                // if on canvs change preview shape, otherwise change the V in HSV
+                if (on_canvas) {
+                     switch (tt) {
+                     case TEMPLATE_SQUARE:    app.preview_shape = SHAPE_SQUARE;    break;
+                     case TEMPLATE_RECTANGLE: app.preview_shape = SHAPE_RECTANGLE; break;
+                     case TEMPLATE_CIRCLE:    app.preview_shape = SHAPE_CIRCLE;    break;
+                     case TEMPLATE_ELLIPSE:   app.preview_shape = SHAPE_ELLIPSE;   break;
+                     case TEMPLATE_TRIANGLE:  app.preview_shape = SHAPE_TRIANGLE;  break;
+                     default: break; // if gesture wasn't a shape then don't do anything
+                     }
+                }
+                // TODO: handle case when we want to change the value of the color wheel
+                app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+                app.samples.count = 0;
             }
         }
 
-        // sample the mouse position
+        /* only sample new mouse positions */
         if (app.sampling) {
             if (app.samples.count) {
                 Vector2 last = da_last(&app.samples);
@@ -812,24 +832,6 @@ int main(int argc, char **argv)
                 da_append(&app.samples, mouse_pos);
             }
         }
-
-        BeginDrawing(); {
-            ClearBackground(WHITE);
-            for (size_t i = 0; i < app.samples.count; i++) {
-                DrawCircleV(app.samples.items[i], 5, RED);
-            }
-            for (size_t i = 0; i < app.gesture.resamples.count; i++) {
-                Vector2 start = app.gesture.resamples.items[i];
-                DrawCircleV(start, 5, BLUE);
-                Vector2 end = Vector2Add(start, Vector2Scale(app.gesture.vectors.items[i], 1));
-                DrawLineV(start, end, BLACK);
-            }
-        } EndDrawing();
-#else // ASSIGNMENT_2
-        Vector2 mouse_pos = GetMousePosition();
-        bool on_color_wheel = CheckCollisionPointCircle(mouse_pos, app.panel.color_wheel.center, app.panel.color_wheel.radius);
-        bool on_canvas = !on_color_wheel;
-        float wheel = GetMouseWheelMove();
 
         if (IsKeyPressed(KEY_X) && IsKeyDown(KEY_LEFT_CONTROL)) {
             // remove the highlighted shape from the list, but preserve order
@@ -1138,10 +1140,20 @@ int main(int argc, char **argv)
                 draw_shape_preview_icon();
             }
 
+            if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_GESTURE) {
+                for (size_t i = 0; i < app.samples.count; i++) {
+                    DrawCircleV(app.samples.items[i], 5, RED);
+                }
+                // for (size_t i = 0; i < app.gesture.resamples.count; i++) {
+                //     Vector2 start = app.gesture.resamples.items[i];
+                //     DrawCircleV(start, 5, BLUE);
+                //     Vector2 end = Vector2Add(start, Vector2Scale(app.gesture.vectors.items[i], 1));
+                //     DrawLineV(start, end, BLACK);
+                // }
+            }
         } EndDrawing();
 
         app.skip_preview = false;
-#endif // ASSIGNMENT_3
     }
     CloseWindow();
     return 0;
