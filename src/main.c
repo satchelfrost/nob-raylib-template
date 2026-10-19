@@ -13,9 +13,10 @@
 // #define SHOW_DEBUG_BOUNDING_BOXES
 #define MIN_WIDTH  30
 #define MIN_HEIGHT 30
+#define GESTURE_TEMPLATE_FILE "gesture_template.bin"
 
 #define RESAMPLE_COUNT 30
-#define MAX_TEMPLATE_VECTORS RESAMPLE_COUNT
+#define MAX_GESTURE_VECTORS RESAMPLE_COUNT
 
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 #define MAX(a, b) (a) > (b) ? (a) : (b)
@@ -87,27 +88,25 @@ typedef struct {
 typedef Samples Vectors;
 
 typedef enum {
-    TEMPLATE_SQUARE,
-    TEMPLATE_RECTANGLE,
-    TEMPLATE_CIRCLE,
-    TEMPLATE_ELLIPSE,
-    TEMPLATE_TRIANGLE,
-    TEMPLATE_COUNT,
-} Template_Type;
+    GESTURE_SQUARE,
+    GESTURE_RECTANGLE,
+    GESTURE_CIRCLE,
+    GESTURE_ELLIPSE,
+    GESTURE_TRIANGLE,
+    GESTURE_COUNT,
+} Gesture_Type;
 
 typedef struct {
-    Template_Type type;
+    Gesture_Type type;
     Samples resamples;
     Vectors vectors;
-} Template;
+} Draw_Gesture; // NOTE: Gesture conflicts with raylib :(
 
 typedef struct {
-    Template_Type type;
+    Gesture_Type type;
     uint32_t vector_count;
-    Vector2 vectors[MAX_TEMPLATE_VECTORS];
-} Saved_Template;
-
-typedef Template Draw_Gesture;
+    Vector2 vectors[MAX_GESTURE_VECTORS];
+} Saved_Gesture;
 
 static struct {
     Shapes shapes;
@@ -138,9 +137,9 @@ static struct {
     bool sampling;
     Samples samples;
     bool training;
-    Template_Type template_training_index;
-    Draw_Gesture gesture;
-    Template templates[TEMPLATE_COUNT];
+    Gesture_Type gesture_training_index;
+    Draw_Gesture current_gesture;
+    Draw_Gesture gesture_templates[GESTURE_COUNT];
 } app = {0};
 
 float get_path_length(Samples samples)
@@ -153,7 +152,7 @@ float get_path_length(Samples samples)
     return path_length;
 }
 
-bool resample_between_points(Samples samples, Template *template, bool is_template)
+bool resample_between_points(Samples samples, Draw_Gesture *gesture, bool is_template)
 {
     // Note: I'm going to use variables directly from the paper:
     // "Penny Pincher: A Blazing Fast, Highly Accurate $-Family Recognizer",
@@ -165,7 +164,7 @@ bool resample_between_points(Samples samples, Template *template, bool is_templa
     float I = path_length/(RESAMPLE_COUNT - 1);
     float D = 0.0f;
     Vector2 prev = samples.items[0];
-    da_append(&template->resamples, prev);
+    da_append(&gesture->resamples, prev);
 
     for (size_t i = 1; i < samples.count; i++) {
         Vector2 diff = Vector2Subtract(samples.items[i], samples.items[i-1]);
@@ -176,8 +175,8 @@ bool resample_between_points(Samples samples, Template *template, bool is_templa
             if (is_template) r = Vector2Scale(r, 1/Vector2Length(r));
             D = 0;
             prev = q;
-            da_append(&template->vectors, r);
-            da_append(&template->resamples, q);
+            da_append(&gesture->vectors, r);
+            da_append(&gesture->resamples, q);
         } else {
             D += d;
         }
@@ -186,15 +185,15 @@ bool resample_between_points(Samples samples, Template *template, bool is_templa
     return true;
 }
 
-const char *template_type_to_str(Template_Type type)
+const char *gesture_type_to_str(Gesture_Type type)
 {
     switch (type) {
-    case TEMPLATE_SQUARE:    return "TEMPLATE_SQUARE";
-    case TEMPLATE_RECTANGLE: return "TEMPLATE_RECTANGLE";
-    case TEMPLATE_CIRCLE:    return "TEMPLATE_CIRCLE";
-    case TEMPLATE_ELLIPSE:   return "TEMPLATE_ELLIPSE";
-    case TEMPLATE_TRIANGLE:  return "TEMPLATE_TRIANGLE";
-    default: UNREACHABLE("template type to str");
+    case GESTURE_SQUARE:    return "GESTURE_SQUARE";
+    case GESTURE_RECTANGLE: return "GESTURE_RECTANGLE";
+    case GESTURE_CIRCLE:    return "GESTURE_CIRCLE";
+    case GESTURE_ELLIPSE:   return "GESTURE_ELLIPSE";
+    case GESTURE_TRIANGLE:  return "GESTURE_TRIANGLE";
+    default: UNREACHABLE("gesture type to str");
     }
 }
 
@@ -662,14 +661,14 @@ void deselect_all_edit_widgets(Shape *shape)
     shape->selected_bottom_right = false;
 }
 
-float score(Template template, Draw_Gesture gesture)
+float score(Draw_Gesture gesture_template, Draw_Gesture gesture)
 {
     float score = 0;
     
-    size_t count = MIN(template.vectors.count, gesture.vectors.count);
+    size_t count = MIN(gesture_template.vectors.count, gesture.vectors.count);
 
     for (size_t i = 0; i < count; i++)
-        score += Vector2DotProduct(template.vectors.items[i], gesture.vectors.items[i]);
+        score += Vector2DotProduct(gesture_template.vectors.items[i], gesture.vectors.items[i]);
     return score;
 }
 
@@ -688,25 +687,24 @@ void configure_ui()
 void configure_app()
 {
     configure_ui();
-    app.template_training_index = TEMPLATE_TRIANGLE;
+    app.gesture_training_index = GESTURE_TRIANGLE;
 
-    /* try to load template file */
+    /* try to load gesture template file */
     String_Builder sb = {0};
-    const char *template_file = "template.bin";
-    if (read_entire_file(template_file, &sb)) {
-        Saved_Template saved_templates[TEMPLATE_COUNT] = {0};
+    if (read_entire_file(GESTURE_TEMPLATE_FILE, &sb)) {
+        Saved_Gesture saved_templates[GESTURE_COUNT] = {0};
         if (sb.count == sizeof(saved_templates)) {
             memcpy(saved_templates, sb.items, sb.count);
-            for (size_t i = 0; i < TEMPLATE_COUNT; i++) {
-                app.templates[i].type = saved_templates[i].type;
-                for (size_t j = 0; j < saved_templates[i].vector_count && j < MAX_TEMPLATE_VECTORS; j++) {
+            for (size_t i = 0; i < GESTURE_COUNT; i++) {
+                app.gesture_templates[i].type = saved_templates[i].type;
+                for (size_t j = 0; j < saved_templates[i].vector_count && j < MAX_GESTURE_VECTORS; j++) {
                     Vector2 v = saved_templates[i].vectors[j];
-                    da_append(&app.templates[i].vectors, v);
+                    da_append(&app.gesture_templates[i].vectors, v);
                 }
             }
-            printf("successfully loaded template from %s\n", template_file);
+            printf("successfully loaded template from %s\n", GESTURE_TEMPLATE_FILE);
         } else {
-            printf("loaded template `%s` file, but the size was unexpected %zu\n", template_file, sb.count);
+            printf("loaded template `%s` file, but the size was unexpected %zu\n", GESTURE_TEMPLATE_FILE, sb.count);
         }
     }
     sb_free(sb);
@@ -749,25 +747,24 @@ int main(int argc, char **argv)
 
         if (IsKeyPressed(KEY_T) && !IsKeyDown(KEY_LEFT_CONTROL)) {
             app.training = true;
-            app.template_training_index = (app.template_training_index + 1)%TEMPLATE_COUNT;
-            printf("ready to train %s\n", template_type_to_str(app.template_training_index));
+            app.gesture_training_index = (app.gesture_training_index + 1)%GESTURE_COUNT;
+            printf("ready to train %s\n", gesture_type_to_str(app.gesture_training_index));
         }
         if (IsKeyPressed(KEY_T) && IsKeyDown(KEY_LEFT_CONTROL)) {
             String_Builder sb = {0};
-            Saved_Template saved_templates[TEMPLATE_COUNT] = {0};
+            Saved_Gesture saved_templates[GESTURE_COUNT] = {0};
             da_resize(&sb, sizeof(saved_templates));
-            for (size_t i = 0; i < TEMPLATE_COUNT; i++) {
-                Template t = app.templates[i];
-                saved_templates[i].type = t.type;
-                saved_templates[i].vector_count = (uint32_t)t.vectors.count;
-                for (size_t j = 0; j < t.vectors.count; j++) {
-                    saved_templates[i].vectors[j] = t.vectors.items[j];
+            for (size_t i = 0; i < GESTURE_COUNT; i++) {
+                Draw_Gesture g = app.gesture_templates[i];
+                saved_templates[i].type = g.type;
+                saved_templates[i].vector_count = (uint32_t)g.vectors.count;
+                for (size_t j = 0; j < g.vectors.count; j++) {
+                    saved_templates[i].vectors[j] = g.vectors.items[j];
                 }
             }
             memcpy(sb.items, saved_templates, sb.count);
-            const char *template_file = "template.bin";
-            if (!nob_write_entire_file(template_file, sb.items, sb.count)) return 1;
-            printf("saved template file %s\n", template_file);
+            if (!nob_write_entire_file(GESTURE_TEMPLATE_FILE, sb.items, sb.count)) return 1;
+            printf("saved template file %s\n", GESTURE_TEMPLATE_FILE);
             sb_free(sb);
         }
 
@@ -783,37 +780,35 @@ int main(int argc, char **argv)
             IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.sampling) {
             app.sampling = false;
             if (app.training) {
-                printf("trained template %s\n", template_type_to_str(app.template_training_index));
-                Template *t = &app.templates[app.template_training_index];
-                t->vectors.count = 0;
-                t->resamples.count = 0;
-                resample_between_points(app.samples, t, app.training);
+                printf("trained template %s\n", gesture_type_to_str(app.gesture_training_index));
+                Draw_Gesture *g = &app.gesture_templates[app.gesture_training_index];
+                g->vectors.count = 0;
+                g->resamples.count = 0;
+                resample_between_points(app.samples, g, app.training);
                 app.training = false;
             } else {
-                app.gesture.vectors.count = 0;
-                app.gesture.resamples.count = 0;
-                resample_between_points(app.samples, &app.gesture, app.training);
+                app.current_gesture.vectors.count = 0;
+                app.current_gesture.resamples.count = 0;
+                resample_between_points(app.samples, &app.current_gesture, app.training);
 
                 float highest_score = -FLT_MAX;
-                Template_Type tt = 0;
-                for (int i = 0; i < TEMPLATE_COUNT; i++) {
-                    float s = score(app.templates[i], app.gesture);
+                Gesture_Type gt = 0;
+                for (int i = 0; i < GESTURE_COUNT; i++) {
+                    float s = score(app.gesture_templates[i], app.current_gesture);
                     if (s > highest_score) {
                         highest_score = s;
-                        tt = i;
+                        gt = i;
                     }
                 }
 
-                // printf("the highest score was %f, which was template %s\n", highest_score, template_type_to_str(tt));
-                // if on canvs change preview shape, otherwise change the V in HSV
                 if (on_canvas) {
-                     switch (tt) {
-                     case TEMPLATE_SQUARE:    app.preview_shape = SHAPE_SQUARE;    break;
-                     case TEMPLATE_RECTANGLE: app.preview_shape = SHAPE_RECTANGLE; break;
-                     case TEMPLATE_CIRCLE:    app.preview_shape = SHAPE_CIRCLE;    break;
-                     case TEMPLATE_ELLIPSE:   app.preview_shape = SHAPE_ELLIPSE;   break;
-                     case TEMPLATE_TRIANGLE:  app.preview_shape = SHAPE_TRIANGLE;  break;
-                     default: break; // if gesture wasn't a shape then don't do anything
+                     switch (gt) {
+                     case GESTURE_SQUARE:    app.preview_shape = SHAPE_SQUARE;    break;
+                     case GESTURE_RECTANGLE: app.preview_shape = SHAPE_RECTANGLE; break;
+                     case GESTURE_CIRCLE:    app.preview_shape = SHAPE_CIRCLE;    break;
+                     case GESTURE_ELLIPSE:   app.preview_shape = SHAPE_ELLIPSE;   break;
+                     case GESTURE_TRIANGLE:  app.preview_shape = SHAPE_TRIANGLE;  break;
+                     default: break; // if gesture wasn't a shape then don't do anything here
                      }
                 }
                 // TODO: handle case when we want to change the value of the color wheel
@@ -1103,7 +1098,8 @@ int main(int argc, char **argv)
         }
 
         // reset or cancel current shape draw
-        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) &&
+            app.new_shape_substate != NEW_SHAPE_SUBSTATE_GESTURE) {
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
         }
 
@@ -1144,11 +1140,13 @@ int main(int argc, char **argv)
                 for (size_t i = 0; i < app.samples.count; i++) {
                     DrawCircleV(app.samples.items[i], 5, RED);
                 }
-                // for (size_t i = 0; i < app.gesture.resamples.count; i++) {
-                //     Vector2 start = app.gesture.resamples.items[i];
-                //     DrawCircleV(start, 5, BLUE);
-                //     Vector2 end = Vector2Add(start, Vector2Scale(app.gesture.vectors.items[i], 1));
-                //     DrawLineV(start, end, BLACK);
+                // if (0) { // this will show the resample points
+                    for (size_t i = 0; i < app.current_gesture.resamples.count; i++) {
+                        Vector2 start = app.current_gesture.resamples.items[i];
+                        DrawCircleV(start, 5, BLUE);
+                        Vector2 end = Vector2Add(start, Vector2Scale(app.current_gesture.vectors.items[i], 1));
+                        DrawLineV(start, end, BLACK);
+                    }
                 // }
             }
         } EndDrawing();
@@ -1159,11 +1157,6 @@ int main(int argc, char **argv)
     return 0;
 }
 
-// TODO: save the gesture templates
-// TODO: merge the assignment 2 w/ 3
-//       - perhaps have a flag that says you have a pen device connected
-//       - have a flag that allows you to train
+// TODO: copy/paste gesture???
 // TODO: erase/scribble gesture
 // TODO: lasso gesture???
-// TODO: copy/paste gesture???
-// TODO: colors w/ gestures??
