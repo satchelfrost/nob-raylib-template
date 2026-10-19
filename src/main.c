@@ -5,7 +5,7 @@
 #include <time.h>
 #include <float.h>
 
-// #define ASSIGNMENT_3
+#define ASSIGNMENT_3
 
 #include "stb_image_write.h"
 
@@ -15,6 +15,9 @@
 // #define SHOW_DEBUG_BOUNDING_BOXES
 #define MIN_WIDTH  30
 #define MIN_HEIGHT 30
+
+#define RESAMPLE_COUNT 30
+#define MAX_TEMPLATE_VECTORS RESAMPLE_COUNT
 
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 #define MAX(a, b) (a) > (b) ? (a) : (b)
@@ -99,6 +102,12 @@ typedef struct {
     Vectors vectors;
 } Template;
 
+typedef struct {
+    Template_Type type;
+    uint32_t vector_count;
+    Vector2 vectors[MAX_TEMPLATE_VECTORS];
+} Saved_Template;
+
 typedef Template Draw_Gesture;
 
 static struct {
@@ -126,28 +135,14 @@ static struct {
 
     } panel;
 
-
     // assignment 3 additions
     bool sampling;
-    Samples samples; // training samples
-
-    bool train_template;
+    Samples samples;
+    bool training;
     Template_Type template_index;
     Draw_Gesture gesture;
     Template templates[TEMPLATE_COUNT];
 } app = {0};
-
-void configure_ui()
-{
-    app.panel.color      = GRAY;
-    app.panel.width      = 125;
-    app.panel.height     = GetScreenHeight();
-    app.panel.color_wheel.value  = 1.0;
-    app.panel.color_wheel.radius = 55.0f;
-    app.panel.color_wheel.center = (Vector2){app.panel.width/2.0f, app.panel.width/2.0f};
-    app.translate_widget_texture  = LoadTexture("assets/translate_32x32.png");
-    app.preview_color = BLUE; // default preview color
-}
 
 float get_path_length(Samples samples)
 {
@@ -158,8 +153,6 @@ float get_path_length(Samples samples)
 
     return path_length;
 }
-
-#define RESAMPLE_COUNT 30
 
 bool resample_between_points(Samples samples, Template *template, bool is_template)
 {
@@ -681,14 +674,52 @@ float score(Template template, Draw_Gesture gesture)
     return score;
 }
 
+void configure_ui()
+{
+    app.panel.color      = GRAY;
+    app.panel.width      = 125;
+    app.panel.height     = GetScreenHeight();
+    app.panel.color_wheel.value  = 1.0;
+    app.panel.color_wheel.radius = 55.0f;
+    app.panel.color_wheel.center = (Vector2){app.panel.width/2.0f, app.panel.width/2.0f};
+    app.translate_widget_texture  = LoadTexture("assets/translate_32x32.png");
+    app.preview_color = BLUE; // default preview color
+}
+
+void configure_app()
+{
+    configure_ui();
+    app.template_index = TEMPLATE_TRIANGLE;
+
+    /* try to load template file */
+    String_Builder sb = {0};
+    const char *template_file = "template.bin";
+    if (read_entire_file(template_file, &sb)) {
+        Saved_Template saved_templates[TEMPLATE_COUNT] = {0};
+        if (sb.count == sizeof(saved_templates)) {
+            memcpy(saved_templates, sb.items, sb.count);
+            for (size_t i = 0; i < TEMPLATE_COUNT; i++) {
+                app.templates[i].type = saved_templates[i].type;
+                for (size_t j = 0; j < saved_templates[i].vector_count && j < MAX_TEMPLATE_VECTORS; j++) {
+                    Vector2 v = saved_templates[i].vectors[j];
+                    da_append(&app.templates[i].vectors, v);
+                }
+            }
+            printf("successfully loaded template from %s\n", template_file);
+        } else {
+            printf("loaded template `%s` file, but the size was unexpected %zu\n", template_file, sb.count);
+        }
+    }
+    sb_free(sb);
+}
+
 int main(int argc, char **argv)
 {
     const int width  = 800;
     const int height = 600;
     SetTraceLogLevel(LOG_ERROR);
     InitWindow(width, height, "Minimal Shapes");
-    configure_ui();
-    app.train_template = true;
+    configure_app();
 
     String_Builder sb = {0};
 
@@ -715,10 +746,28 @@ int main(int argc, char **argv)
 #ifdef ASSIGNMENT_3
         UNUSED(clicked_shapes);
         Vector2 mouse_pos = GetMousePosition();
-        if (IsKeyPressed(KEY_T)) {
-            app.train_template = true;
+        if (IsKeyPressed(KEY_T) && !IsKeyDown(KEY_LEFT_CONTROL)) {
+            app.training = true;
             app.template_index = (app.template_index + 1)%TEMPLATE_COUNT;
             printf("ready to train %s\n", template_type_to_str(app.template_index));
+        }
+        if (IsKeyPressed(KEY_T) && IsKeyDown(KEY_LEFT_CONTROL)) {
+            String_Builder sb = {0};
+            Saved_Template saved_templates[TEMPLATE_COUNT] = {0};
+            da_resize(&sb, sizeof(saved_templates));
+            for (size_t i = 0; i < TEMPLATE_COUNT; i++) {
+                Template t = app.templates[i];
+                saved_templates[i].type = t.type;
+                saved_templates[i].vector_count = (uint32_t)t.vectors.count;
+                for (size_t j = 0; j < t.vectors.count; j++) {
+                    saved_templates[i].vectors[j] = t.vectors.items[j];
+                }
+            }
+            memcpy(sb.items, saved_templates, sb.count);
+            const char *template_file = "template.bin";
+            if (!nob_write_entire_file(template_file, sb.items, sb.count)) return 1;
+            printf("saved template file %s\n", template_file);
+            sb_free(sb);
         }
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.sampling) {
@@ -727,17 +776,17 @@ int main(int argc, char **argv)
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.sampling) {
             app.sampling = false;
-            if (app.train_template) {
+            if (app.training) {
                 printf("training %s\n", template_type_to_str(app.template_index));
                 Template *t = &app.templates[app.template_index];
                 t->vectors.count = 0;
                 t->resamples.count = 0;
-                resample_between_points(app.samples, t, app.train_template);
-                app.train_template = false;
+                resample_between_points(app.samples, t, app.training);
+                app.training = false;
             } else {
                 app.gesture.vectors.count = 0;
                 app.gesture.resamples.count = 0;
-                resample_between_points(app.samples, &app.gesture, app.train_template);
+                resample_between_points(app.samples, &app.gesture, app.training);
 
                 float highest_score = -FLT_MAX;
                 Template_Type tt = 0;
@@ -1097,3 +1146,12 @@ int main(int argc, char **argv)
     CloseWindow();
     return 0;
 }
+
+// TODO: save the gesture templates
+// TODO: merge the assignment 2 w/ 3
+//       - perhaps have a flag that says you have a pen device connected
+//       - have a flag that allows you to train
+// TODO: erase/scribble gesture
+// TODO: lasso gesture???
+// TODO: copy/paste gesture???
+// TODO: colors w/ gestures??
