@@ -88,8 +88,6 @@ typedef struct {
 
 typedef Samples Vectors;
 
-// TODO: lasso gesture???
-
 typedef enum {
     GESTURE_SQUARE,
     GESTURE_RECTANGLE,
@@ -627,8 +625,12 @@ Edit_Widget_Info get_highlighted_shape_edit_widget_info()
         }
     }
 
+    static bool once = false;
     if (!found_highlighted) {
-        printf("WARNING: failed to find highlighted shape necessary for widget info\n");
+        if (!once) {
+            printf("WARNING: failed to find highlighted shape necessary for widget info\n");
+            once = true;
+        }
         return widget_info;
     }
 
@@ -727,6 +729,54 @@ void configure_app()
         }
     }
     sb_free(sb);
+}
+
+typedef struct {
+    Vector2 origin;
+    Vector2 direction;
+} Ray_2D;
+
+typedef struct {
+    Vector2 a;
+    Vector2 b;
+} Segment_2D;
+
+bool ray_segment_intersects(Ray_2D ray, Segment_2D segment, Vector2 *intersection)
+{
+    // source: https://rootllama.wordpress.com/2014/06/20/ray-line-segment-intersection-test-in-2d/
+    Vector2 v1 = Vector2Subtract(ray.origin, segment.a);
+    Vector2 v2 = Vector2Subtract(segment.b, segment.a);
+    Vector2 v3 = (Vector2){-ray.direction.y, ray.direction.x};
+
+    float t1 = (v2.x*v1.y - v2.y*v1.x)/Vector2DotProduct(v2, v3);
+    float t2 = Vector2DotProduct(v1, v3)/Vector2DotProduct(v2, v3);
+
+    if (!(t1 >= 0 && 0 <= t2 && t2 <= 1)) return false;
+
+    Vector2 result = Vector2Add(ray.origin, Vector2Scale(ray.direction, t1));
+    *intersection = result;
+
+    return true;
+}
+
+bool shape_inside_lasso(Shape shape)
+{
+    Vector2 shape_center = (Vector2){
+        .x = shape.rect.x + shape.rect.width/2.0f,
+        .y = shape.rect.y + shape.rect.height/2.0f,
+    };
+    size_t intersection_count = 0;
+    Ray_2D ray = {.origin = shape_center, .direction = {0, 1000}};
+    for (size_t i = 0; i < app.lasso.count; i++) {
+        Vector2 intersection = {0};
+        size_t prev_idx = i == 0 ? app.lasso.count - 1 : i - 1;
+        Segment_2D segment = {app.lasso.items[prev_idx], app.lasso.items[i]};
+        if (ray_segment_intersects(ray, segment, &intersection)) {
+            intersection_count++;
+        }
+    }
+
+    return intersection_count%2 != 0;
 }
 
 int main(int argc, char **argv)
@@ -856,6 +906,24 @@ int main(int argc, char **argv)
             IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.lassoing) {
             app.lassoing = false;
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+            clicked_shapes.count = 0;
+
+            bool any_shapes_highlighted = false;
+            for (size_t i = 0; i < app.shapes.count; i++) {
+                if (shape_inside_lasso(app.shapes.items[i])) {
+                    Shape *shape = &app.shapes.items[i];
+                    if (shape->highlighted) any_shapes_highlighted = true;
+                    shape->clicked = true;
+                    da_append(&clicked_shapes, shape);
+                }
+            }
+            if (!any_shapes_highlighted && clicked_shapes.count) {
+                clicked_shapes.items[0]->highlighted = true;
+                app.highlighted_shape_index = 0;
+                app.last_highlighted_shape = *clicked_shapes.items[0];
+            }
+            if (clicked_shapes.count) app.edit_mode = EDIT_MODE_SELECT;
+
             app.lasso.count = 0;
         }
 
