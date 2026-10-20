@@ -75,6 +75,7 @@ typedef enum {
 typedef enum {
     NEW_SHAPE_SUBSTATE_PREVIEW,
     NEW_SHAPE_SUBSTATE_GESTURE,
+    NEW_SHAPE_SUBSTATE_LASSO, // TODO: naming no longer makes a lot of sense, since lasso is more of a select
     NEW_SHAPE_SUBSTATE_LINE_1,
     NEW_SHAPE_SUBSTATE_LINE_2,
 } New_Shape_Substate;
@@ -87,12 +88,18 @@ typedef struct {
 
 typedef Samples Vectors;
 
+// TODO: lasso gesture???
+
 typedef enum {
     GESTURE_SQUARE,
     GESTURE_RECTANGLE,
     GESTURE_CIRCLE,
     GESTURE_ELLIPSE,
     GESTURE_TRIANGLE,
+    GESTURE_COPY,
+    GESTURE_CUT,
+    GESTURE_PASTE,
+    GESTURE_SCRIBBLE,
     GESTURE_COUNT,
 } Gesture_Type;
 
@@ -111,9 +118,10 @@ typedef struct {
 static struct {
     Shapes shapes;
     Shape copied_shape;
+    Shape last_highlighted_shape;
     Shape_Type preview_shape;
     Color preview_color;
-    Edit_Mode mode;
+    Edit_Mode edit_mode;
     New_Shape_Substate new_shape_substate;
     Vector2 line_start;      // initial mouse click
     Vector2 tri_second_vert; // secondary mouse click (specificallly only for triangles)
@@ -136,10 +144,17 @@ static struct {
     // assignment 3 additions
     bool sampling;
     Samples samples;
+    bool lassoing;
+    Samples lasso;
     bool training;
     Gesture_Type gesture_training_index;
     Draw_Gesture current_gesture;
     Draw_Gesture gesture_templates[GESTURE_COUNT];
+    // specifically for the gestures
+    bool copy;
+    bool cut;
+    bool paste;
+    bool delete;
 } app = {0};
 
 float get_path_length(Samples samples)
@@ -193,6 +208,10 @@ const char *gesture_type_to_str(Gesture_Type type)
     case GESTURE_CIRCLE:    return "GESTURE_CIRCLE";
     case GESTURE_ELLIPSE:   return "GESTURE_ELLIPSE";
     case GESTURE_TRIANGLE:  return "GESTURE_TRIANGLE";
+    case GESTURE_COPY:      return "GESTURE_COPY";
+    case GESTURE_CUT:       return "GESTURE_CUT";
+    case GESTURE_PASTE:     return "GESTURE_PASTE";
+    case GESTURE_SCRIBBLE:  return "GESTURE_SCRIBBLE";
     default: UNREACHABLE("gesture type to str");
     }
 }
@@ -467,7 +486,7 @@ void draw_shapes()
 
 void draw_shape_preview()
 {
-    if (app.mode != EDIT_MODE_NEW_SHAPE) return;
+    if (app.edit_mode != EDIT_MODE_NEW_SHAPE) return;
 
     Color preview_color = app.preview_color;
     preview_color.a = 200; // give preview shape some transparency
@@ -563,7 +582,7 @@ void draw_shape_preview_icon()
     Vector2 t2 = Vector2Add(t0, (Vector2){15, -25});
     Color preview_color = get_hovered_color_wheel_color();
 
-    if (app.mode == EDIT_MODE_NEW_SHAPE && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
+    if (app.edit_mode == EDIT_MODE_NEW_SHAPE && app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
         switch (app.preview_shape) {
         case SHAPE_SQUARE:
             DrawRectangle(shape_icon.x, shape_icon.y, 25, 25, preview_color);
@@ -687,7 +706,7 @@ void configure_ui()
 void configure_app()
 {
     configure_ui();
-    app.gesture_training_index = GESTURE_TRIANGLE;
+    app.gesture_training_index = GESTURE_COUNT-1; // start on last gesture
 
     /* try to load gesture template file */
     String_Builder sb = {0};
@@ -768,8 +787,13 @@ int main(int argc, char **argv)
             sb_free(sb);
         }
 
-        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
+            app.edit_mode = EDIT_MODE_NEW_SHAPE;
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_GESTURE;
+        }
+        if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && app.edit_mode != EDIT_MODE_SELECT) {
+            app.edit_mode = EDIT_MODE_NEW_SHAPE;
+            app.new_shape_substate = NEW_SHAPE_SUBSTATE_LASSO;
         }
         if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_GESTURE &&
             IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.sampling) {
@@ -801,20 +825,38 @@ int main(int argc, char **argv)
                     }
                 }
 
+                printf("chose gesture %s\n", gesture_type_to_str(gt));
+
                 if (on_canvas) {
-                     switch (gt) {
-                     case GESTURE_SQUARE:    app.preview_shape = SHAPE_SQUARE;    break;
-                     case GESTURE_RECTANGLE: app.preview_shape = SHAPE_RECTANGLE; break;
-                     case GESTURE_CIRCLE:    app.preview_shape = SHAPE_CIRCLE;    break;
-                     case GESTURE_ELLIPSE:   app.preview_shape = SHAPE_ELLIPSE;   break;
-                     case GESTURE_TRIANGLE:  app.preview_shape = SHAPE_TRIANGLE;  break;
-                     default: break; // if gesture wasn't a shape then don't do anything here
-                     }
+
+                    switch (gt) {
+                    case GESTURE_SQUARE:    app.preview_shape = SHAPE_SQUARE;    break;
+                    case GESTURE_RECTANGLE: app.preview_shape = SHAPE_RECTANGLE; break;
+                    case GESTURE_CIRCLE:    app.preview_shape = SHAPE_CIRCLE;    break;
+                    case GESTURE_ELLIPSE:   app.preview_shape = SHAPE_ELLIPSE;   break;
+                    case GESTURE_TRIANGLE:  app.preview_shape = SHAPE_TRIANGLE;  break;
+                    case GESTURE_COPY:      app.copy   = true; break;
+                    case GESTURE_CUT:       app.cut    = true; break;
+                    case GESTURE_PASTE:     app.paste  = true; break;
+                    case GESTURE_SCRIBBLE:  app.delete = true; break;
+                    default: break; // if gesture wasn't a shape then don't do anything here
+                    }
                 }
                 // TODO: handle case when we want to change the value of the color wheel
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
                 app.samples.count = 0;
             }
+        }
+        if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LASSO &&
+            IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !app.lassoing) {
+            app.lassoing = true;
+            app.lasso.count = 0;
+        }
+        if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LASSO &&
+            IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && app.lassoing) {
+            app.lassoing = false;
+            app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
+            app.lasso.count = 0;
         }
 
         /* only sample new mouse positions */
@@ -827,9 +869,19 @@ int main(int argc, char **argv)
                 da_append(&app.samples, mouse_pos);
             }
         }
+        if (app.lassoing) {
+            if (app.lasso.count) {
+                Vector2 last = da_last(&app.lasso);
+                if (last.x != mouse_pos.x || last.y != mouse_pos.y)
+                    da_append(&app.lasso, mouse_pos);
+            } else {
+                da_append(&app.lasso, mouse_pos);
+            }
+        }
 
-        if (IsKeyPressed(KEY_X) && IsKeyDown(KEY_LEFT_CONTROL)) {
+        if ((IsKeyPressed(KEY_X) && IsKeyDown(KEY_LEFT_CONTROL)) || app.cut) {
             // remove the highlighted shape from the list, but preserve order
+            app.cut = false;
             size_t highlighted_idx = 0;
             bool highlighted_found = false;
             for (size_t i = 0; i < app.shapes.count; i++) {
@@ -844,20 +896,25 @@ int main(int argc, char **argv)
                 for (size_t i = highlighted_idx + 1; i < app.shapes.count; i++)
                     app.shapes.items[i-1] = app.shapes.items[i];
                 app.shapes.count--;
-                app.mode = EDIT_MODE_NEW_SHAPE;
+                app.edit_mode = EDIT_MODE_NEW_SHAPE;
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
                 clicked_shapes.count = 0;
             }
         }
-        if (IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL)) {
+        if ((IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL)) || app.copy) {
+            app.copy = false;
+            bool found = false;
             for (size_t i = 0; i < app.shapes.count; i++) {
                 if (app.shapes.items[i].highlighted) {
                     app.copied_shape = app.shapes.items[i];
+                    found = true;
                     break;
                 }
             }
+            if (!found) app.copied_shape = app.last_highlighted_shape;
         }
-        if (IsKeyPressed(KEY_V) && IsKeyDown(KEY_LEFT_CONTROL)) {
+        if ((IsKeyPressed(KEY_V) && IsKeyDown(KEY_LEFT_CONTROL)) || app.paste) {
+            app.paste = false;
             Shape shape = app.copied_shape;
             shape.rect.x = mouse_pos.x;
             shape.rect.y = mouse_pos.y;
@@ -865,7 +922,8 @@ int main(int argc, char **argv)
             shape.highlighted = false;
             da_append(&app.shapes, shape);
         }
-        if (IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_BACKSPACE)) {
+        if ((IsKeyPressed(KEY_DELETE) || IsKeyPressed(KEY_BACKSPACE)) || app.delete) {
+            app.delete = false;
             /* NOTE that I'm not unloading the texture, but this should happen here.
              * For now, I'm not going to worry about it */
             // remove the highlighted shape from the list, but preserve order
@@ -882,13 +940,13 @@ int main(int argc, char **argv)
                 for (size_t i = highlighted_idx + 1; i < app.shapes.count; i++)
                     app.shapes.items[i-1] = app.shapes.items[i];
                 app.shapes.count--;
-                app.mode = EDIT_MODE_NEW_SHAPE;
+                app.edit_mode = EDIT_MODE_NEW_SHAPE;
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
                 clicked_shapes.count = 0;
             }
         }
         if (IsKeyPressed(KEY_N) && IsKeyDown(KEY_LEFT_CONTROL)) {
-            app.mode = EDIT_MODE_NEW_SHAPE;
+            app.edit_mode = EDIT_MODE_NEW_SHAPE;
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
             app.shapes.count = 0;
             clicked_shapes.count = 0;
@@ -936,7 +994,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (wheel != 0.0  && app.mode == EDIT_MODE_NEW_SHAPE &&
+        if (wheel != 0.0  && app.edit_mode == EDIT_MODE_NEW_SHAPE &&
             app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
 
             // if on canvs change preview shape, otherwise change the V in HSV
@@ -953,10 +1011,14 @@ int main(int argc, char **argv)
                 }
             }
         }
+        if (on_color_wheel && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+            float nv = app.panel.color_wheel.value - 0.1;
+            app.panel.color_wheel.value = (nv < 0.0f) ? 1.0f : nv;
+        }
 
         /* handle color select */
         if (!on_canvas && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            app.mode = EDIT_MODE_NEW_SHAPE;
+            app.edit_mode = EDIT_MODE_NEW_SHAPE;
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
             app.preview_color = get_hovered_color_wheel_color();
             for (size_t i = 0; i < clicked_shapes.count; i++) {
@@ -977,11 +1039,11 @@ int main(int argc, char **argv)
                     shape->highlighted = false;
                 }
             }
-            Edit_Mode prev_mode = app.mode;
-            app.mode = (clicked_shapes.count) ? EDIT_MODE_SELECT : EDIT_MODE_NEW_SHAPE;
+            Edit_Mode prev_mode = app.edit_mode;
+            app.edit_mode = (clicked_shapes.count) ? EDIT_MODE_SELECT : EDIT_MODE_NEW_SHAPE;
 
             /* if we just changed to selcted, then skip drawing the preview shape this frame */
-            if (app.mode == EDIT_MODE_NEW_SHAPE && prev_mode == EDIT_MODE_SELECT) {
+            if (app.edit_mode == EDIT_MODE_NEW_SHAPE && prev_mode == EDIT_MODE_SELECT) {
                 app.skip_preview = true;
             }
         }
@@ -997,23 +1059,45 @@ int main(int argc, char **argv)
         if (!any_shapes_highlighted && clicked_shapes.count) {
             clicked_shapes.items[0]->highlighted = true;
             app.highlighted_shape_index = 0;
+            app.last_highlighted_shape = *clicked_shapes.items[0];
         }
 
         // if there are multiple clicked shapes use scroll wheel to switch movable shape (i.e. highlighted)
-        if (wheel != 0.0  && app.mode == EDIT_MODE_SELECT) {
-            if (clicked_shapes.count) {
-                size_t count = clicked_shapes.count;
-                if (wheel < 0) app.highlighted_shape_index = (app.highlighted_shape_index + count - 1)%count;
-                else           app.highlighted_shape_index = (app.highlighted_shape_index + 1)%count;
-                for (size_t i = 0; i < clicked_shapes.count; i++) {
-                    Shape *shape = clicked_shapes.items[i];
-                    shape->highlighted = app.highlighted_shape_index == i;
+        if (app.edit_mode == EDIT_MODE_SELECT) {
+            if (wheel != 0.0) {
+                if (clicked_shapes.count) {
+                    size_t count = clicked_shapes.count;
+                    if (wheel < 0) app.highlighted_shape_index = (app.highlighted_shape_index + count - 1)%count;
+                    else           app.highlighted_shape_index = (app.highlighted_shape_index + 1)%count;
+                    for (size_t i = 0; i < clicked_shapes.count; i++) {
+                        Shape *shape = clicked_shapes.items[i];
+                        if (app.highlighted_shape_index == i) {
+                            shape->highlighted = true;
+                            app.last_highlighted_shape = *shape;
+                        } else {
+                            shape->highlighted = false;
+                        }
+                    }
+                }
+            } else if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                if (clicked_shapes.count) {
+                    size_t count = clicked_shapes.count;
+                    app.highlighted_shape_index = (app.highlighted_shape_index + 1)%count;
+                    for (size_t i = 0; i < clicked_shapes.count; i++) {
+                        Shape *shape = clicked_shapes.items[i];
+                        if (app.highlighted_shape_index == i) {
+                            shape->highlighted = true;
+                            app.last_highlighted_shape = *shape;
+                        } else {
+                            shape->highlighted = false;
+                        }
+                    }
                 }
             }
         }
 
         /* handle resizing and translation */
-        if (app.mode == EDIT_MODE_SELECT && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && on_canvas) {
+        if (app.edit_mode == EDIT_MODE_SELECT && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && on_canvas) {
             for (size_t i = 0; i < app.shapes.count; i++) {
                 Shape *shape = &app.shapes.items[i];
                 if (shape->highlighted) {
@@ -1092,18 +1176,18 @@ int main(int argc, char **argv)
                     }
                 }
             }
-        } else if (app.mode == EDIT_MODE_SELECT && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        } else if (app.edit_mode == EDIT_MODE_SELECT && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
             for (size_t i = 0; i < app.shapes.count; i++)
                 deselect_all_edit_widgets(&app.shapes.items[i]);
         }
 
         // reset or cancel current shape draw
-        if (app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) &&
-            app.new_shape_substate != NEW_SHAPE_SUBSTATE_GESTURE) {
+        if (app.edit_mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) &&
+            app.new_shape_substate != NEW_SHAPE_SUBSTATE_GESTURE && app.new_shape_substate != NEW_SHAPE_SUBSTATE_LASSO) {
             app.new_shape_substate = NEW_SHAPE_SUBSTATE_PREVIEW;
         }
 
-        if (on_canvas && app.mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !app.skip_preview) {
+        if (on_canvas && app.edit_mode == EDIT_MODE_NEW_SHAPE && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !app.skip_preview) {
             if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_PREVIEW) {
                 app.line_start = mouse_pos;
                 app.new_shape_substate = NEW_SHAPE_SUBSTATE_LINE_1;
@@ -1126,20 +1210,23 @@ int main(int argc, char **argv)
 
             draw_shapes();
 
-            if (app.mode == EDIT_MODE_SELECT)
+            if (app.edit_mode == EDIT_MODE_SELECT)
                 draw_highlighted_shape_edit_widgets();
 
             draw_side_panel();
 
-            if (app.mode == EDIT_MODE_NEW_SHAPE && !app.skip_preview) {
+            if (app.edit_mode == EDIT_MODE_NEW_SHAPE && !app.skip_preview) {
                 draw_shape_preview();
                 draw_shape_preview_icon();
             }
 
+            if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LASSO) {
+                for (size_t i = 0; i < app.lasso.count; i++)
+                    DrawCircleV(app.lasso.items[i], 5, BLACK);
+            }
             if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_GESTURE) {
-                for (size_t i = 0; i < app.samples.count; i++) {
+                for (size_t i = 0; i < app.samples.count; i++)
                     DrawCircleV(app.samples.items[i], 5, RED);
-                }
                 if (0) { // this will show the resample points
                     for (size_t i = 0; i < app.current_gesture.resamples.count; i++) {
                         Vector2 start = app.current_gesture.resamples.items[i];
@@ -1156,7 +1243,3 @@ int main(int argc, char **argv)
     CloseWindow();
     return 0;
 }
-
-// TODO: copy/paste gesture???
-// TODO: erase/scribble gesture
-// TODO: lasso gesture???
