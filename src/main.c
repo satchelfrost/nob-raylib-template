@@ -1289,8 +1289,11 @@ int main(int argc, char **argv)
             }
 
             if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_LASSO) {
-                for (size_t i = 0; i < app.lasso.count; i++)
-                    DrawCircleV(app.lasso.items[i], 5, BLACK);
+                for (size_t i = 0; i < app.lasso.count; i++) {
+                    // DrawCircleV(app.lasso.items[i], 5, BLACK);
+                    int prev = i == 0 ? app.lasso.count - 1 : i - 1;
+                    DrawLineV(app.lasso.items[prev], app.lasso.items[i], BLACK);
+                }
             }
             if (app.new_shape_substate == NEW_SHAPE_SUBSTATE_GESTURE) {
                 for (size_t i = 0; i < app.samples.count; i++)
